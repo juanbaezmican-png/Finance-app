@@ -105,7 +105,8 @@ function normalizeTx(t, account, ownIbans) {
   const counterIban = (counterAcc?.iban || '').replace(/\s/g, '').toUpperCase();
   const remit = Array.isArray(t.remittance_information) ? t.remittance_information.join(' ') : (t.remittance_information || '');
   const desc = [counter.name, remit, t.bank_transaction_code?.description, t.note].filter(Boolean).join(' · ').replace(/\s+/g, ' ').trim();
-  const date = t.booking_date || t.value_date || t.transaction_date || '';
+  // Fecha de la compra (transaction_date) si el banco la da; si no, la de contabilización
+  const date = t.transaction_date || t.booking_date || t.value_date || '';
   const idBase = t.transaction_id || t.entry_reference || `${date}|${amt}|${desc}`;
   return {
     id: `${account.uid}:${idBase}`,
@@ -246,6 +247,43 @@ async function callback(env, url) {
 }
 
 /* ---------------------------------- API ---------------------------------- */
+const madridDate = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(d);
+const eurTxt = n => { const [i, d] = Math.abs(n).toFixed(2).split('.'); return (n < 0 ? '-' : '') + i.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + d + ' €'; };
+// Traspasos entre tus propias cuentas y pockets: salen dos veces (salida y entrada) con el mismo importe
+function internalIds(txs) {
+  const out = new Set(txs.filter(t => t.internal).map(t => t.id));
+  const by = {};
+  for (const t of txs) (by[t.amount.toFixed(2)] = by[t.amount.toFixed(2)] || []).push(t);
+  for (const list of Object.values(by)) for (const a of list) {
+    if (out.has(a.id)) continue;
+    const b = list.find(x => x.id !== a.id && !out.has(x.id) && x.account_uid !== a.account_uid && x.type !== a.type && Math.abs(new Date(x.date) - new Date(a.date)) <= 2 * 864e5);
+    if (b) { out.add(a.id); out.add(b.id); }
+  }
+  for (const t of txs) if (/trade ?republic/i.test(`${t.counterparty} ${t.description}`) && !/trade ?republic/i.test(t.aspsp || '')) out.add(t.id);
+  return out;
+}
+// Resumen del día para la notificación de la noche
+async function apiToday(env, url) {
+  let meta = await getJSON(env, 'meta', {});
+  if (url.searchParams.get('refresh') === '1' && (!meta.last_sync || Date.now() - new Date(meta.last_sync) > 2 * 3600e3)) {
+    try { await syncAll(env); meta = await getJSON(env, 'meta', {}); } catch (e) { console.warn('refresh', e.message); }
+  }
+  const [store, balances, widget] = await Promise.all([getJSON(env, 'transactions', {}), getJSON(env, 'balances', {}), getJSON(env, 'widget', null)]);
+  const date = url.searchParams.get('date') || madridDate();
+  const all = Object.values(store);
+  const internal = internalIds(all);
+  const today = all.filter(t => t.date === date && t.type === 'gasto' && !internal.has(t.id)).sort((a, b) => b.amount - a.amount);
+  const total = Math.round(today.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+  const pockets = (widget?.pockets || []).filter(p => p.uid && balances[p.uid] && Number.isFinite(balances[p.uid].amount)).map(p => ({ n: p.n, b: balances[p.uid].amount }));
+  const left = pockets.reduce((s, p) => s + p.b, 0);
+  const top = today.slice(0, 3).map(t => `${(t.counterparty || t.description).slice(0, 24)} ${eurTxt(t.amount)}`);
+  const body = today.length
+    ? `Hoy has gastado ${eurTxt(total)} en ${today.length} ${today.length === 1 ? 'compra' : 'compras'}: ${top.join(', ')}${today.length > 3 ? '…' : '.'}`
+    : 'Hoy no has gastado nada. ¡Bien hecho!';
+  const extra = pockets.length ? ` Te quedan ${eurTxt(left)} en tus pockets${pockets.filter(p => p.b < 10).length ? ` (casi vacío: ${pockets.filter(p => p.b < 10).map(p => p.n).join(', ')})` : ''}.` : '';
+  return json({ date, total, count: today.length, title: today.length ? `Hoy: ${eurTxt(total)}` : 'Hoy: 0 €', body: body + extra, last_sync: meta.last_sync || null, items: today.map(t => ({ name: t.counterparty || t.description, amount: t.amount, account: t.account_name })) });
+}
+
 async function apiData(env, url) {
   const since = url.searchParams.get('since') || '';
   const [sessions, store, balances, meta] = await Promise.all([getJSON(env, 'sessions', {}), getJSON(env, 'transactions', {}), getJSON(env, 'balances', {}), getJSON(env, 'meta', {})]);
@@ -275,6 +313,7 @@ export default {
       if (url.pathname === '/connect/start') return await startAuth(env, t, url.searchParams.get('name'), url.searchParams.get('country') || 'ES');
       if (url.pathname === '/sync') { const r = await syncAll(env, { force: true }); return page('Sincronizado', `<h1>Sincronizado</h1><p>${r.added} movimientos nuevos.</p>${r.log.length ? `<p class="err">${r.log.map(esc).join('<br>')}</p>` : ''}<p><a href="/connect?t=${encodeURIComponent(t)}">Volver</a></p>`); }
       if (url.pathname === '/api/data') return await apiData(env, url);
+      if (url.pathname === '/api/today') return await apiToday(env, url);
       if (url.pathname === '/api/sync' && req.method === 'POST') return json(await syncAll(env, { force: true }));
       // Copia de los datos de la app (para usarla en varios dispositivos)
       if (url.pathname === '/api/state' && req.method === 'GET') return json((await getJSON(env, 'app_state', null)) || { state: null, updated: null });

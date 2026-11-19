@@ -581,6 +581,12 @@ function viewSettings(){
       <p class="hint">${syncOn()?'Como tienes el servidor conectado, el widget se actualiza solo con el saldo real de tus pockets. El código incluye la contraseña del servidor: no lo compartas.':'Sin servidor, los datos se copian en el script: vuelve a copiarlo cuando quieras actualizarlo. Con el servidor conectado se actualiza solo.'}</p>
       <button class="btn primary block" style="margin-top:10px" onclick="App.widget()">Copiar código del widget</button>
     </div>
+    <div class="card"><h2>Aviso diario de gastos</h2>
+      <p class="hint" style="margin-top:0">Cada noche te llega una notificación con lo que has gastado ese día y lo que te queda en los pockets. Necesita el servidor conectado y las apps <b>Scriptable</b> y <b>Atajos</b> del iPhone.</p>
+      <ol class="hint" style="padding-left:18px;line-height:1.6"><li>Pulsa el botón de abajo (desde el iPhone).</li><li>En Scriptable: <b>+</b> → pega → llámalo “Aviso diario”. Pulsa ▶︎ una vez y permite las notificaciones.</li><li>En Atajos: <b>Automatización</b> → <b>+</b> → <b>Hora del día</b> → elige la hora (p. ej. 21:30), <b>Diariamente</b> y <b>Ejecutar inmediatamente</b> → <b>Siguiente</b>.</li><li>Busca la acción <b>Run Script</b> de Scriptable, elige “Aviso diario” y pulsa <b>OK</b>.</li></ol>
+      <button class="btn primary block" style="margin-top:10px" onclick="App.dailyScript()" ${syncOn()?'':'disabled'}>Copiar código del aviso diario</button>
+      ${syncOn()?'':'<p class="hint">Primero conecta tu servidor en “Bancos y sincronización”.</p>'}
+    </div>
     <div class="card"><h2>Copia de seguridad</h2>
       <p class="hint" style="margin-top:0">Tus datos se guardan en este navegador. Descarga una copia de vez en cuando (o para pasar los datos del ordenador al móvil).</p>
       <div class="row-btns" style="margin-top:10px"><button class="btn" onclick="App.backup()">${ic('down')} Exportar copia</button><button class="btn" onclick="document.getElementById('importFile').click()">${ic('up')} Importar copia</button></div>
@@ -968,6 +974,35 @@ if (config.runsInApp) await w.presentMedium();
 Script.complete();
 `;
 }
+function dailyCode(){
+  const appUrl = /^https?:/.test(location.href) ? location.href.split('#')[0] : '';
+  return `// Aviso diario de gastos generado por Mis Finanzas
+// Contiene la contraseña de tu servidor: no lo compartas.
+const SERVER = ${JSON.stringify(S.settings.syncUrl)}, PASS = ${JSON.stringify(S.settings.syncPass)}, APP = ${JSON.stringify(appUrl)};
+let j;
+try {
+  const rq = new Request(SERVER + '/api/today?refresh=1');
+  rq.headers = { authorization: 'Bearer ' + PASS };
+  rq.timeoutInterval = 45;
+  j = await rq.loadJSON();
+  if (!j || !j.body) throw new Error(j && j.error ? j.error : 'sin datos');
+} catch (e) {
+  j = { title: 'Mis Finanzas', body: 'No he podido consultar tus gastos de hoy (' + e.message + ').' };
+}
+const n = new Notification();
+n.title = j.title;
+n.body = j.body;
+if (APP) n.openURL = APP;
+await n.schedule();
+Script.complete();
+`;
+}
+async function dailyScript(){
+  if(!syncOn()){ toast('Primero conecta tu servidor','over'); return; }
+  const code=dailyCode();
+  try{ await navigator.clipboard.writeText(code); toast('Código copiado. Pégalo en Scriptable','ok'); }
+  catch(e){ modal('Código del aviso diario', `<p class="hint" style="margin-top:0">Mantén pulsado el texto → Seleccionar todo → Copiar.</p><textarea class="input" style="height:220px;font-family:monospace;font-size:11px" readonly>${esc(code)}</textarea>`); }
+}
 async function widget(){
   if(!S.pockets.length){ toast('Primero crea tus pockets','over'); return; }
   const code=widgetCode();
@@ -1321,7 +1356,7 @@ window.App = {
   filter(k,v){ ui.f[k]=v; if(k==='type' && v && ui.f.cat && cat(ui.f.cat).type!==v) ui.f.cat=''; const pos = k==='q' ? document.activeElement.selectionStart : null; render(); if(k==='q'){ const s=document.querySelector('.search'); s.focus(); s.setSelectionRange(pos,pos); } },
   clearFilters(){ ui.f={q:'',cat:'',type:'',method:'',where:''}; render(); },
   openMovement, delMovement, editCategory, editBudget, editRecurring, editPocket, pocketDetail, editAccount, editGoal, goalDetail,
-  exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan, saveSync, bankSync,
+  exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan, saveSync, bankSync, dailyScript,
   saveKey(){ const v=(document.getElementById('apiKey')?.value||'').trim(); if(v && !/^sk-ant-/.test(v)){ toast('La clave debería empezar por sk-ant-','over'); return; } S.settings.apiKey=v; save(); render(); toast(v?'Clave guardada':'Clave eliminada','ok'); },
   _state:()=>S, _totals:totals,
 };

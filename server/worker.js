@@ -33,11 +33,14 @@ function timingSafeEqual(a, b) {
   let r = 0; for (let i = 0; i < x.length; i++) r |= x[i] ^ y[i];
   return r === 0;
 }
+const normPass = s => String(s ?? '').normalize('NFC').trim();
+function givenPassword(req, url) {
+  const h = req.headers.get('authorization') || '';
+  return normPass(h.startsWith('Bearer ') ? h.slice(7) : (url.searchParams.get('t') || ''));
+}
 function authorized(req, env, url) {
   if (!env.APP_PASSWORD) return false;
-  const h = req.headers.get('authorization') || '';
-  const token = h.startsWith('Bearer ') ? h.slice(7) : (url.searchParams.get('t') || '');
-  return timingSafeEqual(token, env.APP_PASSWORD);
+  return timingSafeEqual(givenPassword(req, url), normPass(env.APP_PASSWORD));
 }
 
 /* ------------------------------- JWT RS256 ------------------------------ */
@@ -248,8 +251,14 @@ export default {
       if (url.pathname === '/' && (url.searchParams.has('code') || url.searchParams.has('error'))) return await callback(env, url);
       if (url.pathname === '/') return page('Mis Finanzas', `<h1>Mis Finanzas</h1><p>Servidor de sincronización funcionando.</p>${env.EB_PRIVATE_KEY ? '' : '<p class="err">Falta el secreto EB_PRIVATE_KEY.</p>'}${env.APP_PASSWORD ? '' : '<p class="err">Falta el secreto APP_PASSWORD.</p>'}
         <form method="get" action="/connect" class="card"><b>Conectar bancos</b><input type="password" name="t" placeholder="Tu contraseña (APP_PASSWORD)"><button class="btn">Entrar</button></form>`);
-      if (!authorized(req, env, url)) return url.pathname.startsWith('/api/') ? json({ error: 'unauthorized' }, 401) : page('Contraseña incorrecta', '<h1>Contraseña incorrecta</h1><p><a href="/">Volver</a></p>');
-      const t = url.searchParams.get('t') || '';
+      if (!authorized(req, env, url)) return url.pathname.startsWith('/api/') ? json({ error: 'unauthorized' }, 401) : (() => {
+        const got = givenPassword(req, url).length, want = normPass(env.APP_PASSWORD).length;
+        const hint = !env.APP_PASSWORD ? 'El servidor no tiene ninguna contraseña guardada (falta APP_PASSWORD).'
+          : got !== want ? `Has escrito ${got} caracteres y la contraseña guardada tiene ${want}.`
+          : `Tiene el mismo número de caracteres (${got}), así que probablemente cambia alguna letra o mayúscula.`;
+        return page('Contraseña incorrecta', `<h1>Contraseña incorrecta</h1><p>${esc(hint)}</p><p><a href="/">Volver</a></p>`);
+      })();
+      const t = givenPassword(req, url);
       if (url.pathname === '/connect') return await connectPage(env, t, url.searchParams.get('q'));
       if (url.pathname === '/connect/start') return await startAuth(env, t, url.searchParams.get('name'), url.searchParams.get('country') || 'ES');
       if (url.pathname === '/sync') { const r = await syncAll(env, { force: true }); return page('Sincronizado', `<h1>Sincronizado</h1><p>${r.added} movimientos nuevos.</p>${r.log.length ? `<p class="err">${r.log.map(esc).join('<br>')}</p>` : ''}<p><a href="/connect?t=${encodeURIComponent(t)}">Volver</a></p>`); }

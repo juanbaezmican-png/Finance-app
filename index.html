@@ -357,6 +357,9 @@ function runRecurring(){
 const movsOf = ym => S.movements.filter(m=>m.date.startsWith(ym));
 function totals(ym){ let inc=0,exp=0; for(const m of movsOf(ym)){ if(m.type==='ingreso') inc+=m.amount; else exp+=m.amount; } return {inc:round2(inc),exp:round2(exp),left:round2(inc-exp)}; }
 function expByCat(ym){ const o={}; for(const m of movsOf(ym)) if(m.type==='gasto') o[m.categoryId]=(o[m.categoryId]||0)+m.amount; return o; }
+// Lo asignado a un pocket en un mes: lo que has metido en él ese mes según Revolut; si no hay traspasos, el valor por defecto
+function alloc(p, ym){ const b = S.bankAlloc && S.bankAlloc[ym] && S.bankAlloc[ym][p.id]; return round2(b>0 ? b : (+p.monthly||0)); }
+const allocFromBank = (p, ym) => !!(S.bankAlloc && S.bankAlloc[ym] && S.bankAlloc[ym][p.id]>0);
 function pocketSpent(pid, ym){ return round2(movsOf(ym).filter(m=>m.type==='gasto'&&m.pocketId===pid).reduce((a,m)=>a+m.amount,0)); }
 function level(spent, limit){ if(!limit) return ''; const r=spent/limit; return r>1 ? 'over' : r>=0.8 ? 'warn' : ''; }
 function budgetAlerts(ym){
@@ -365,9 +368,9 @@ function budgetAlerts(ym){
     const sp=by[c.id]||0, l=level(sp,c.budget);
     if(l) out.push({l, icon:c.icon, text: l==='over' ? `Te has pasado en <b>${esc(c.name)}</b>: ${eur(sp)} de ${eur(c.budget)} (+${eur(sp-c.budget)})` : `Cerca del límite en <b>${esc(c.name)}</b>: llevas ${eur(sp)} de ${eur(c.budget)} (${pct(sp/c.budget*100)})`});
   }
-  for(const p of S.pockets.filter(p=>p.monthly>0)){
-    const sp=pocketSpent(p.id,ym), l=level(sp,p.monthly);
-    if(l) out.push({l, icon:p.icon, text: l==='over' ? `Pocket <b>${esc(p.name)}</b> en negativo: has gastado ${eur(sp-p.monthly)} más de lo asignado` : `Pocket <b>${esc(p.name)}</b> casi vacío: quedan ${eur(p.monthly-sp)}`});
+  for(const p of S.pockets.filter(p=>alloc(p,ym)>0)){
+    const sp=pocketSpent(p.id,ym), l=level(sp,alloc(p,ym));
+    if(l) out.push({l, icon:p.icon, text: l==='over' ? `Pocket <b>${esc(p.name)}</b> en negativo: has gastado ${eur(sp-alloc(p,ym))} más de lo asignado` : `Pocket <b>${esc(p.name)}</b> casi vacío: quedan ${eur(alloc(p,ym)-sp)}`});
   }
   return out.sort((a,b)=>(a.l==='over'?0:1)-(b.l==='over'?0:1));
 }
@@ -446,11 +449,11 @@ function viewHome(){
   const items=Object.entries(by).map(([id,v])=>{ const c=cat(id); return {label:c.name, icon:c.icon, color:c.color, value:round2(v)}; }).sort((a,b)=>b.value-a.value);
   const alerts=budgetAlerts(ui.month);
   const savedRate = t.inc ? t.left/t.inc*100 : 0;
-  const pk = S.pockets.length ? `<div class="card"><h2>Mis pockets <button class="btn sm ghost" onclick="App.go('pockets')">Ver todos</button></h2>${S.pockets.map(pp=>{ const sp=pocketSpent(pp.id,ui.month), l=level(sp,pp.monthly); const left=pocketLeft(pp,ui.month);
-      return `<div class="item budget"><div class="ico" style="background:${pp.color}22">${pp.icon}</div><div class="body"><div class="t"><span>${esc(pp.name)}</span><span class="num ${left<0?'red':''}">${eur(left)}</span></div><div class="prog ${l}"><i style="width:${Math.min(pp.monthly?sp/pp.monthly*100:0,100)}%;${l?'':`background:${pp.color}`}"></i></div></div></div>`; }).join('')}</div>` : '';
+  const pk = S.pockets.length ? `<div class="card"><h2>Mis pockets <button class="btn sm ghost" onclick="App.go('pockets')">Ver todos</button></h2>${S.pockets.map(pp=>{ const sp=pocketSpent(pp.id,ui.month), l=level(sp,alloc(pp,ui.month)); const left=pocketLeft(pp,ui.month);
+      return `<div class="item budget"><div class="ico" style="background:${pp.color}22">${pp.icon}</div><div class="body"><div class="t"><span>${esc(pp.name)}</span><span class="num ${left<0?'red':''}">${eur(left)}</span></div><div class="prog ${l}"><i style="width:${Math.min(alloc(pp,ui.month)?sp/alloc(pp,ui.month)*100:0,100)}%;${l?'':`background:${pp.color}`}"></i></div></div></div>`; }).join('')}</div>` : '';
   return `${topbar('Resumen')}${demoBanner()}
   <div class="grid g3">
-    <div class="card stat hero"><div class="lbl">Lo que me queda</div><div class="val num ${t.left<0?'red':''}">${eur(t.left)}</div><div class="sub">${t.inc?`Ahorras el ${pct(Math.max(savedRate,0))} de tus ingresos`:'Sin ingresos registrados este mes'}</div></div>
+    <div class="card stat hero"><div class="lbl">Lo que me queda</div><div class="val num ${t.left<0?'red':''}">${eur(t.left)}</div><div class="sub">${t.inc?`Ahorras el ${pct(Math.max(savedRate,0))} de tus ingresos`:'Sin ingresos registrados este mes'}${(S.bankSavings||{})[ui.month]?` · ${eur(S.bankSavings[ui.month])} enviados a Trade Republic`:''}</div></div>
     <div class="card stat"><div class="lbl">Ingresos</div><div class="val num green">${eur(t.inc)}</div><div class="sub">${monthName(prevM)}: ${eur(p.inc)}</div></div>
     <div class="card stat"><div class="lbl">Gastos</div><div class="val num">${eur(t.exp)}</div><div class="sub">${monthName(prevM)}: ${eur(p.exp)}</div></div>
   </div>
@@ -504,17 +507,17 @@ function viewMovs(){
 }
 
 function viewPockets(){
-  const total=S.pockets.reduce((a,p)=>a+(+p.monthly||0),0), spent=S.pockets.reduce((a,p)=>a+pocketSpent(p.id,ui.month),0), leftAll=round2(S.pockets.reduce((a,p)=>a+pocketLeft(p,ui.month),0));
+  const total=S.pockets.reduce((a,p)=>a+(alloc(p,ui.month)),0), spent=S.pockets.reduce((a,p)=>a+pocketSpent(p.id,ui.month),0), leftAll=round2(S.pockets.reduce((a,p)=>a+pocketLeft(p,ui.month),0));
   const accFlows = id => { let i=0,o=0; for(const m of movsOf(ui.month)) if(m.accountId===id || (id==='revolut' && m.pocketId && !m.accountId)){ if(m.type==='ingreso') i+=m.amount; else o+=m.amount; } return {i,o}; };
   return `${topbar('Pockets')}${demoBanner()}
   <div class="grid g3">
     <div class="card stat hero"><div class="lbl">Queda en pockets</div><div class="val num ${leftAll<0?'red':''}">${eur(leftAll)}</div><div class="sub">${S.pockets.some(p=>pocketBalance(p)!=null)?'saldo real de Revolut':`de ${eur(total)} repartidos este mes`}</div></div>
-    <div class="card stat"><div class="lbl">Asignado</div><div class="val num">${eur(total)}</div><div class="sub">${S.pockets.length} pockets</div></div>
+    <div class="card stat"><div class="lbl">Asignado este mes</div><div class="val num">${eur(total)}</div><div class="sub">${S.pockets.some(p=>allocFromBank(p,ui.month))?'según tus traspasos en Revolut':`${S.pockets.length} pockets`}</div></div>
     <div class="card stat"><div class="lbl">Gastado</div><div class="val num">${eur(spent)}</div><div class="sub">${total?pct(spent/total*100)+' del total':'—'}</div></div>
   </div>
   <div class="card section"><h2>Pockets de Revolut <button class="btn sm" onclick="App.editPocket()">+ Nuevo pocket</button></h2>
-  ${S.pockets.length?`<div class="pockets">${S.pockets.map(p=>{ const sp=pocketSpent(p.id,ui.month), l=level(sp,p.monthly), left=pocketLeft(p,ui.month), real=ui.month===ymOf(todayStr())&&pocketBalance(p)!=null;
-    return `<div class="pocket" onclick="App.pocketDetail('${p.id}')"><div class="top"><span>${p.icon}</span><span>${esc(p.name)}</span>${l?`<span class="tag ${l}">${l==='over'?'Pasado':'Casi vacío'}</span>`:''}</div><div class="left num ${left<0?'red':''}">${eur(left)}</div><div class="of">${real?'en Revolut':`quedan de ${eur(p.monthly)}`} · gastado ${eur(sp)}</div><div class="prog ${l}"><i style="width:${Math.min(p.monthly?sp/p.monthly*100:0,100)}%;${l?'':`background:${p.color}`}"></i></div></div>`; }).join('')}</div><p class="hint">Cada pocket tiene su tarjeta. Al apuntar un gasto elige el pocket y se descontará de aquí. Toca un pocket para ver sus movimientos o editarlo.</p>`
+  ${S.pockets.length?`<div class="pockets">${S.pockets.map(p=>{ const sp=pocketSpent(p.id,ui.month), l=level(sp,alloc(p,ui.month)), left=pocketLeft(p,ui.month), real=ui.month===ymOf(todayStr())&&pocketBalance(p)!=null;
+    return `<div class="pocket" onclick="App.pocketDetail('${p.id}')"><div class="top"><span>${p.icon}</span><span>${esc(p.name)}</span>${l?`<span class="tag ${l}">${l==='over'?'Pasado':'Casi vacío'}</span>`:''}</div><div class="left num ${left<0?'red':''}">${eur(left)}</div><div class="of">${real?'en Revolut':`quedan de ${eur(alloc(p,ui.month))}`} · gastado ${eur(sp)}${alloc(p,ui.month)?` · metido ${eur(alloc(p,ui.month),0)}`:''}</div><div class="prog ${l}"><i style="width:${Math.min(alloc(p,ui.month)?sp/alloc(p,ui.month)*100:0,100)}%;${l?'':`background:${p.color}`}"></i></div></div>`; }).join('')}</div><p class="hint">Cada pocket tiene su tarjeta. Al apuntar un gasto elige el pocket y se descontará de aquí. Toca un pocket para ver sus movimientos o editarlo.</p>`
   :`<div class="empty"><span class="big">${ic('wallet')}</span>Aún no tienes pockets. Crea uno por cada pocket de Revolut (p. ej. Súper, Ocio, Comer fuera) con lo que le asignas al mes.<br><br><button class="btn primary" onclick="App.editPocket()">+ Crear pocket</button></div>`}</div>
   <div class="card section"><h2>Mis cuentas <small>${monthLabel(ui.month)}</small></h2><div class="accounts">${S.accounts.map(a=>{ const f=accFlows(a.id);
     const bal = (S.bank?.accounts||[]).filter(x=>appAccountFor({aspsp:x.aspsp})===a.id && x.balance && Number.isFinite(x.balance.amount)).reduce((s,x)=>s+x.balance.amount,0);
@@ -671,12 +674,12 @@ function openMovement(id, preset={}){
     });
   });
 }
-function snapshotLevels(ym){ const by=expByCat(ym), o={}; for(const c of S.categories) if(c.budget) o['c'+c.id]=level(by[c.id]||0,c.budget); for(const p of S.pockets) if(p.monthly) o['p'+p.id]=level(pocketSpent(p.id,ym),p.monthly); return o; }
+function snapshotLevels(ym){ const by=expByCat(ym), o={}; for(const c of S.categories) if(c.budget) o['c'+c.id]=level(by[c.id]||0,c.budget); for(const p of S.pockets) if(alloc(p,ym)) o['p'+p.id]=level(pocketSpent(p.id,ym),alloc(p,ym)); return o; }
 function newAlert(before, rec){
   const ym=ymOf(rec.date), after=snapshotLevels(ym); const rank={'':0,warn:1,over:2};
   const c=cat(rec.categoryId), p=pocket(rec.pocketId);
   if(c.budget && rank[after['c'+c.id]]>rank[before['c'+c.id]||'']){ const sp=expByCat(ym)[c.id]||0; return after['c'+c.id]==='over' ? {l:'over',text:`Te has pasado del presupuesto de ${c.name} (${eur(sp)} de ${eur(c.budget)})`} : {l:'warn',text:`Cuidado: llevas el ${pct(sp/c.budget*100)} del presupuesto de ${c.name}`}; }
-  if(p && p.monthly && rank[after['p'+p.id]]>rank[before['p'+p.id]||'']){ const left=p.monthly-pocketSpent(p.id,ym); return after['p'+p.id]==='over' ? {l:'over',text:`El pocket ${p.name} está en negativo (${eur(left)})`} : {l:'warn',text:`Al pocket ${p.name} le quedan ${eur(left)}`}; }
+  if(p && alloc(p,ym) && rank[after['p'+p.id]]>rank[before['p'+p.id]||'']){ const left=alloc(p,ym)-pocketSpent(p.id,ym); return after['p'+p.id]==='over' ? {l:'over',text:`El pocket ${p.name} está en negativo (${eur(left)})`} : {l:'warn',text:`Al pocket ${p.name} le quedan ${eur(left)}`}; }
   return null;
 }
 function delMovement(id){ if(!confirm('¿Eliminar este movimiento?')) return; const mv=S.movements.find(m=>m.id===id); if(mv&&mv.receipt) RDB.del(mv.receipt).catch(()=>{}); S.movements=S.movements.filter(m=>m.id!==id); save(); closeModal(); render(); toast('Movimiento eliminado','ok'); }
@@ -759,7 +762,8 @@ function editPocket(id){
   const st = p ? {...p, categories:[...(p.categories||[])]} : {name:'', icon:'🛒', color:COLORS[2], monthly:'', categories:[]};
   modal(p?'Editar pocket':'Nuevo pocket', `
     <div class="f2"><div class="field"><label>Nombre</label><input class="input" id="pName" value="${esc(st.name)}" placeholder="Ej. Súper" maxlength="24"></div>
-    <div class="field"><label>Lo que le asignas al mes</label><input class="input" id="pAmt" inputmode="decimal" placeholder="0,00 €" value="${st.monthly!==''?fmtNum(st.monthly).replace(/\./g,''):''}"></div></div>
+    <div class="field"><label>Asignación por defecto al mes</label><input class="input" id="pAmt" inputmode="decimal" placeholder="0,00 €" value="${st.monthly!==''?fmtNum(st.monthly).replace(/\./g,''):''}"></div></div>
+    <p class="hint" style="margin:-6px 0 12px 4px">Cada mes uso lo que metas de verdad en el pocket desde Revolut. Este valor solo se usa si un mes no detecto ningún traspaso.</p>
     <div class="field"><label>Categorías que pagas con este pocket <span class="muted">(se elegirá el pocket solo)</span></label><div class="chips" id="pCats">${S.categories.filter(c=>c.type==='gasto').map(c=>`<button type="button" class="chip ${st.categories.includes(c.id)?'on':''}" data-id="${c.id}" style="--c:${c.color}"><span class="e">${c.icon}</span>${esc(c.name)}</button>`).join('')}</div></div>
     <div class="field"><label>Icono</label>${emojiPicker(st.icon)}</div>
     <div class="field"><label>Color</label>${colorPicker(st.color)}</div>
@@ -780,7 +784,7 @@ function pocketDetail(id){
   const p=pocket(id); const ms=movsOf(ui.month).filter(m=>m.pocketId===id&&m.type==='gasto').sort((a,b)=>b.date.localeCompare(a.date));
   const sp=pocketSpent(id,ui.month);
   modal(`${p.icon} ${esc(p.name)}`, `
-    <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">${[['Asignado',p.monthly],['Gastado',sp],['Queda',p.monthly-sp]].map(([l,v])=>`<div class="card stat" style="padding:10px"><div class="lbl">${l}</div><div class="num ${v<0?'red':''}" style="font-weight:600;font-size:18px;margin-top:4px;font-family:var(--font-display)">${eur(v)}</div></div>`).join('')}</div>
+    <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">${[['Asignado',alloc(p,ui.month)],['Gastado',sp],['Queda',alloc(p,ui.month)-sp]].map(([l,v])=>`<div class="card stat" style="padding:10px"><div class="lbl">${l}</div><div class="num ${v<0?'red':''}" style="font-weight:600;font-size:18px;margin-top:4px;font-family:var(--font-display)">${eur(v)}</div></div>`).join('')}</div>
     <div class="card" style="padding:4px 14px">${ms.length?ms.map(m=>movItem(m).replace('class="item mov"','class="item mov" data-d')).join(''):'<div class="empty">Sin gastos en este pocket en '+monthLabel(ui.month)+'.</div>'}</div>
     <div class="row-btns" style="margin-top:12px"><button class="btn primary" style="flex:1" onclick="App.openMovement(null,{pocketId:'${p.id}',accountId:'revolut',categoryId:'${(p.categories||[])[0]||''}'})">+ Gasto en este pocket</button><button class="btn" onclick="App.editPocket('${p.id}')">Editar</button></div>`);
 }
@@ -928,7 +932,7 @@ function wipe(){ if(!confirm('¿Borrar TODOS tus datos? Esto no se puede deshace
 function widgetCode(){
   const ym=ymOf(todayStr());
   const data={mes:monthLabel(ym), actualizado:new Date().toLocaleString('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}),
-    pockets:S.pockets.map(p=>({n:p.name,i:p.icon,c:p.color,a:+p.monthly||0,g:pocketSpent(p.id,ym),b:pocketBalance(p),uid:p.bankUid||''}))};
+    pockets:S.pockets.map(p=>({n:p.name,i:p.icon,c:p.color,a:alloc(p,ym),g:pocketSpent(p.id,ym),b:pocketBalance(p),uid:p.bankUid||''}))};
   return `// Widget "Pockets" generado por Mis Finanzas
 // Vuelve a copiarlo desde la app para actualizar los datos.
 let DATA = ${JSON.stringify(data)};
@@ -1165,7 +1169,7 @@ async function api(path, opts={}){
   return j;
 }
 const pocketBalance = p => { const a = p.bankUid && (S.bank?.accounts||[]).find(x=>x.uid===p.bankUid); return a && a.balance && Number.isFinite(a.balance.amount) ? a.balance.amount : null; };
-function pocketLeft(p, ym){ const b = ym===ymOf(todayStr()) ? pocketBalance(p) : null; return b!=null ? b : round2((+p.monthly||0) - pocketSpent(p.id, ym)); }
+function pocketLeft(p, ym){ const b = ym===ymOf(todayStr()) ? pocketBalance(p) : null; return b!=null ? b : round2(alloc(p,ym) - pocketSpent(p.id, ym)); }
 
 const MCC = [[/^5411|^5499/, 'super'], [/^581[234]/, 'fuera'], [/^554[12]|^7523|^41(11|21|31)|^4784|^7538/, 'transporte'], [/^5912|^80(11|21|62)|^7997/, 'salud'], [/^56(51|61|91|99)|^5621|^5641/, 'ropa'], [/^4899|^581[5-8]/, 'subs'], [/^78(32|41)|^79(22|91|94|96)/, 'ocio'], [/^5200|^57(12|19)|^4900|^4814|^5251/, 'hogar'], [/^5947|^5992/, 'regalos']];
 const RULES = [
@@ -1261,6 +1265,16 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     const from = S.settings.syncFrom || todayStr();
     const txs = (data.transactions||[]).filter(t=>t.date && t.date>=from && t.amount>0);
     const internal = markInternal(data.transactions||[]);
+    // Reparto del mes: lo que entra (neto) en cada pocket por traspasos, y lo que mandas a Trade Republic
+    const ba={}, bs={}, fromYm=from.slice(0,7);
+    for(const t of data.transactions||[]){
+      if(!internal.has(t.id) || !t.date) continue; const ym=t.date.slice(0,7); if(ym<fromYm) continue;
+      const pk=S.pockets.find(p=>p.bankUid && p.bankUid===t.account_uid);
+      if(pk){ ba[ym]=ba[ym]||{}; ba[ym][pk.id]=round2((ba[ym][pk.id]||0)+(t.type==='ingreso'?t.amount:-t.amount)); }
+      const toTR = /trade republic/.test(norm(t.counterparty+' '+t.description)) && !/trade/.test(norm(t.aspsp));
+      if(toTR) bs[ym]=round2((bs[ym]||0)+(t.type==='gasto'?t.amount:-t.amount));
+    }
+    S.bankAlloc=ba; S.bankSavings=bs;
     const seen = S.settings.bankSeen = S.settings.bankSeen || {};
     const byBankId = new Map(S.movements.filter(m=>m.bankId).map(m=>[m.bankId,m]));
     const fresh=[]; let linked=0, updated=0;
@@ -1304,7 +1318,7 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
 // ---- Copia en la nube (mismo estado en móvil y ordenador) + datos para el widget ----
 let pushT=null, pulling=false;
 function cleanState(){ const c=JSON.parse(JSON.stringify(S)); delete c.settings.apiKey; delete c.settings.syncPass; delete c.settings.syncUrl; return c; }
-function widgetPayload(){ const ym=ymOf(todayStr()); return { mes:monthLabel(ym), pockets:S.pockets.map(p=>({ n:p.name, i:p.icon, c:p.color, a:+p.monthly||0, g:pocketSpent(p.id,ym), uid:p.bankUid||'' })) }; }
+function widgetPayload(){ const ym=ymOf(todayStr()); return { mes:monthLabel(ym), pockets:S.pockets.map(p=>({ n:p.name, i:p.icon, c:p.color, a:alloc(p,ym), g:pocketSpent(p.id,ym), uid:p.bankUid||'' })) }; }
 function schedulePush(){ if(!syncOn() || pulling) return; clearTimeout(pushT); pushT=setTimeout(pushState, 2500); }
 async function pushState(){
   if(!syncOn()) return;

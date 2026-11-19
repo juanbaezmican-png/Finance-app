@@ -210,10 +210,14 @@ async function callback(env, url) {
   const err = url.searchParams.get('error');
   if (err) return page('No conectado', `<h1>No se ha conectado</h1><p class="err">${esc(url.searchParams.get('error_description') || err)}</p>`);
   const state = url.searchParams.get('state');
-  const saved = state && await getJSON(env, `state_${state}`, null);
-  if (!saved) return page('Enlace caducado', '<h1>Enlace caducado</h1><p>Vuelve a la página de conexión e inténtalo de nuevo.</p>');
-  await env.DB.delete(`state_${state}`);
-  const s = await eb(env, '/sessions', { method: 'POST', body: { code: url.searchParams.get('code') } });
+  let saved = state && await getJSON(env, `state_${state}`, null);
+  if (saved) await env.DB.delete(`state_${state}`);
+  // Si la conexión se inició desde el panel de Enable Banking ("Activate by linking accounts")
+  // no hay estado guardado: el código solo es válido para esta aplicación, así que lo aceptamos.
+  const code = url.searchParams.get('code');
+  if (!code) return page('Enlace no válido', '<h1>Enlace no válido</h1><p>Vuelve a la página de conexión e inténtalo de nuevo.</p>');
+  const s = await eb(env, '/sessions', { method: 'POST', body: { code } });
+  if (!saved) saved = { name: s.aspsp?.name || 'Banco', country: s.aspsp?.country || 'ES' };
   const accounts = (s.accounts || []).map(a => typeof a === 'string' ? { uid: a, name: saved.name, iban: '', currency: 'EUR' } : {
     uid: a.uid, name: a.name || a.product || a.details || saved.name, iban: a.account_id?.iban || '', currency: a.currency || 'EUR',
   });

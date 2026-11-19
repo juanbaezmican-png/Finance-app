@@ -221,9 +221,21 @@ async function callback(env, url) {
   if (!code) return page('Enlace no válido', '<h1>Enlace no válido</h1><p>Vuelve a la página de conexión e inténtalo de nuevo.</p>');
   const s = await eb(env, '/sessions', { method: 'POST', body: { code } });
   if (!saved) saved = { name: s.aspsp?.name || 'Banco', country: s.aspsp?.country || 'ES' };
-  const accounts = (s.accounts || []).map(a => typeof a === 'string' ? { uid: a, name: saved.name, iban: '', currency: 'EUR' } : {
-    uid: a.uid, name: a.name || a.product || a.details || saved.name, iban: a.account_id?.iban || '', currency: a.currency || 'EUR',
-  });
+  // Las cuentas pueden llegar como objetos o solo como identificadores (+ accounts_data): se combinan ambas fuentes
+  let detail = null;
+  try { detail = await eb(env, `/sessions/${encodeURIComponent(s.session_id)}`); } catch (e) { console.warn('GET session', e.message); }
+  const byUid = new Map();
+  const add = a => {
+    if (!a) return;
+    if (typeof a === 'string') { if (!byUid.has(a)) byUid.set(a, { uid: a }); return; }
+    const uid = a.uid || a.account_uid; if (!uid) return;
+    byUid.set(uid, { ...(byUid.get(uid) || {}), ...a, uid });
+  };
+  [...(s.accounts || []), ...(detail?.accounts || []), ...(detail?.accounts_data || [])].forEach(add);
+  const accounts = [...byUid.values()].map(a => ({
+    uid: a.uid, name: a.name || a.product || a.details || saved.name, iban: a.account_id?.iban || a.iban || '', currency: a.currency || 'EUR',
+  }));
+  if (!accounts.length) { const ss = await getJSON(env, 'sessions', {}); for (const [k, v] of Object.entries(ss)) if (v.aspsp === saved.name && !v.accounts.length) delete ss[k]; await putJSON(env, 'sessions', ss); return page('Sin cuentas', `<h1 class="err">${esc(saved.name)}: 0 cuentas</h1><p>El banco ha dado permiso, pero Enable Banking no devuelve ninguna cuenta. En el modo gratuito solo se pueden leer las cuentas enlazadas antes desde el panel de Enable Banking (API applications → tu aplicación → enlazar cuentas). Enlaza allí ${esc(saved.name)} y después vuelve a conectarlo desde esta página.</p>`); }
   const sessions = await getJSON(env, 'sessions', {});
   // Sustituye una sesión anterior del mismo banco (renovación)
   for (const [k, v] of Object.entries(sessions)) if (v.aspsp === saved.name) delete sessions[k];

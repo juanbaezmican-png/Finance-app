@@ -13,6 +13,7 @@
 // KV:
 //   DB              almacenamiento de sesiones, movimientos y estado
 
+const VERSION = '2026-11-19.7';
 const EB_API = 'https://api.enablebanking.com';
 const CONSENT_DAYS = 180;
 const FIRST_SYNC_DAYS = 30;
@@ -299,7 +300,7 @@ export default {
     try {
       // Vuelta desde el banco (la URL de redirección es la raíz)
       if (url.pathname === '/' && (url.searchParams.has('code') || url.searchParams.has('error'))) return await callback(env, url);
-      if (url.pathname === '/') return page('Mis Finanzas', `<h1>Mis Finanzas</h1><p>Servidor de sincronización funcionando.</p>${env.EB_PRIVATE_KEY ? '' : '<p class="err">Falta el secreto EB_PRIVATE_KEY.</p>'}${env.APP_PASSWORD ? '' : '<p class="err">Falta el secreto APP_PASSWORD.</p>'}
+      if (url.pathname === '/') return page('Mis Finanzas', `<h1>Mis Finanzas</h1><p>Servidor de sincronización funcionando.</p><p><small>Versión ${VERSION}</small></p>${env.EB_PRIVATE_KEY ? '' : '<p class="err">Falta el secreto EB_PRIVATE_KEY.</p>'}${env.APP_PASSWORD ? '' : '<p class="err">Falta el secreto APP_PASSWORD.</p>'}
         <form method="get" action="/connect" class="card"><b>Conectar bancos</b><input type="password" name="t" placeholder="Tu contraseña (APP_PASSWORD)"><button class="btn">Entrar</button></form>`);
       if (!authorized(req, env, url)) return url.pathname.startsWith('/api/') ? json({ error: 'unauthorized' }, 401) : (() => {
         const got = givenPassword(req, url).length, want = normPass(env.APP_PASSWORD).length;

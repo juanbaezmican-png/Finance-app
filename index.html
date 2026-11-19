@@ -324,7 +324,7 @@ function load(){
   S=defaultState(); return true;
 }
 function migrate(){ const d=defaultState(); for(const k of Object.keys(d)) if(S[k]===undefined) S[k]=d[k]; }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ toast('No se pudo guardar: '+e.message,'over'); } }
+function save(){ S.settings.updatedAt=new Date().toISOString(); try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ toast('No se pudo guardar: '+e.message,'over'); } if(typeof schedulePush==='function') schedulePush(); }
 
 const cat = id => S.categories.find(c=>c.id===id) || {id, name:'Sin categoría', icon:'❔', color:'#94a3b8', type:'gasto', budget:0};
 const acc = id => S.accounts.find(a=>a.id===id);
@@ -446,7 +446,7 @@ function viewHome(){
   const items=Object.entries(by).map(([id,v])=>{ const c=cat(id); return {label:c.name, icon:c.icon, color:c.color, value:round2(v)}; }).sort((a,b)=>b.value-a.value);
   const alerts=budgetAlerts(ui.month);
   const savedRate = t.inc ? t.left/t.inc*100 : 0;
-  const pk = S.pockets.length ? `<div class="card"><h2>Mis pockets <button class="btn sm ghost" onclick="App.go('pockets')">Ver todos</button></h2>${S.pockets.map(pp=>{ const sp=pocketSpent(pp.id,ui.month), l=level(sp,pp.monthly); const left=pp.monthly-sp;
+  const pk = S.pockets.length ? `<div class="card"><h2>Mis pockets <button class="btn sm ghost" onclick="App.go('pockets')">Ver todos</button></h2>${S.pockets.map(pp=>{ const sp=pocketSpent(pp.id,ui.month), l=level(sp,pp.monthly); const left=pocketLeft(pp,ui.month);
       return `<div class="item budget"><div class="ico" style="background:${pp.color}22">${pp.icon}</div><div class="body"><div class="t"><span>${esc(pp.name)}</span><span class="num ${left<0?'red':''}">${eur(left)}</span></div><div class="prog ${l}"><i style="width:${Math.min(pp.monthly?sp/pp.monthly*100:0,100)}%;${l?'':`background:${pp.color}`}"></i></div></div></div>`; }).join('')}</div>` : '';
   return `${topbar('Resumen')}${demoBanner()}
   <div class="grid g3">
@@ -480,7 +480,7 @@ function filteredMovs(){
 function movItem(m){
   const c=cat(m.categoryId), a=acc(m.accountId), p=pocket(m.pocketId);
   const meta=[m.method, p?`${p.icon} ${p.name}`:(a?a.name:'')].filter(Boolean).join(' · ');
-  return `<div class="item mov" onclick="App.openMovement('${m.id}')"><div class="ico" style="background:${c.color}22">${c.icon}</div><div class="body"><div class="t"><span>${esc(m.note||c.name)}${m.recurringId?'<span class="tag rec">fijo</span>':''}${m.receipt?'<span class="tag rec">ticket</span>':''}</span><span class="num ${m.type==='ingreso'?'amt-i':'amt-g'}">${m.type==='ingreso'?'+':'-'}${eur(m.amount)}</span></div><div class="s"><span>${esc(m.note?c.name+' · ':'')}${esc(meta)}</span></div></div></div>`;
+  return `<div class="item mov" onclick="App.openMovement('${m.id}')"><div class="ico" style="background:${c.color}22">${c.icon}</div><div class="body"><div class="t"><span>${esc(m.note||c.name)}${m.recurringId?'<span class="tag rec">fijo</span>':''}${m.receipt?'<span class="tag rec">ticket</span>':''}${m.bankId?`<span class="tag rec">${m.bankPending?'pendiente':'banco'}</span>`:''}</span><span class="num ${m.type==='ingreso'?'amt-i':'amt-g'}">${m.type==='ingreso'?'+':'-'}${eur(m.amount)}</span></div><div class="s"><span>${esc(m.note?c.name+' · ':'')}${esc(meta)}</span></div></div></div>`;
 }
 function viewMovs(){
   const list=filteredMovs(); const f=ui.f;
@@ -504,20 +504,22 @@ function viewMovs(){
 }
 
 function viewPockets(){
-  const total=S.pockets.reduce((a,p)=>a+(+p.monthly||0),0), spent=S.pockets.reduce((a,p)=>a+pocketSpent(p.id,ui.month),0);
+  const total=S.pockets.reduce((a,p)=>a+(+p.monthly||0),0), spent=S.pockets.reduce((a,p)=>a+pocketSpent(p.id,ui.month),0), leftAll=round2(S.pockets.reduce((a,p)=>a+pocketLeft(p,ui.month),0));
   const accFlows = id => { let i=0,o=0; for(const m of movsOf(ui.month)) if(m.accountId===id || (id==='revolut' && m.pocketId && !m.accountId)){ if(m.type==='ingreso') i+=m.amount; else o+=m.amount; } return {i,o}; };
   return `${topbar('Pockets')}${demoBanner()}
   <div class="grid g3">
-    <div class="card stat hero"><div class="lbl">Queda en pockets</div><div class="val num ${total-spent<0?'red':''}">${eur(total-spent)}</div><div class="sub">de ${eur(total)} repartidos este mes</div></div>
+    <div class="card stat hero"><div class="lbl">Queda en pockets</div><div class="val num ${leftAll<0?'red':''}">${eur(leftAll)}</div><div class="sub">${S.pockets.some(p=>pocketBalance(p)!=null)?'saldo real de Revolut':`de ${eur(total)} repartidos este mes`}</div></div>
     <div class="card stat"><div class="lbl">Asignado</div><div class="val num">${eur(total)}</div><div class="sub">${S.pockets.length} pockets</div></div>
     <div class="card stat"><div class="lbl">Gastado</div><div class="val num">${eur(spent)}</div><div class="sub">${total?pct(spent/total*100)+' del total':'—'}</div></div>
   </div>
   <div class="card section"><h2>Pockets de Revolut <button class="btn sm" onclick="App.editPocket()">+ Nuevo pocket</button></h2>
-  ${S.pockets.length?`<div class="pockets">${S.pockets.map(p=>{ const sp=pocketSpent(p.id,ui.month), l=level(sp,p.monthly), left=p.monthly-sp;
-    return `<div class="pocket" onclick="App.pocketDetail('${p.id}')"><div class="top"><span>${p.icon}</span><span>${esc(p.name)}</span>${l?`<span class="tag ${l}">${l==='over'?'Pasado':'Casi vacío'}</span>`:''}</div><div class="left num ${left<0?'red':''}">${eur(left)}</div><div class="of">quedan de ${eur(p.monthly)} · gastado ${eur(sp)}</div><div class="prog ${l}"><i style="width:${Math.min(p.monthly?sp/p.monthly*100:0,100)}%;${l?'':`background:${p.color}`}"></i></div></div>`; }).join('')}</div><p class="hint">Cada pocket tiene su tarjeta. Al apuntar un gasto elige el pocket y se descontará de aquí. Toca un pocket para ver sus movimientos o editarlo.</p>`
+  ${S.pockets.length?`<div class="pockets">${S.pockets.map(p=>{ const sp=pocketSpent(p.id,ui.month), l=level(sp,p.monthly), left=pocketLeft(p,ui.month), real=ui.month===ymOf(todayStr())&&pocketBalance(p)!=null;
+    return `<div class="pocket" onclick="App.pocketDetail('${p.id}')"><div class="top"><span>${p.icon}</span><span>${esc(p.name)}</span>${l?`<span class="tag ${l}">${l==='over'?'Pasado':'Casi vacío'}</span>`:''}</div><div class="left num ${left<0?'red':''}">${eur(left)}</div><div class="of">${real?'en Revolut':`quedan de ${eur(p.monthly)}`} · gastado ${eur(sp)}</div><div class="prog ${l}"><i style="width:${Math.min(p.monthly?sp/p.monthly*100:0,100)}%;${l?'':`background:${p.color}`}"></i></div></div>`; }).join('')}</div><p class="hint">Cada pocket tiene su tarjeta. Al apuntar un gasto elige el pocket y se descontará de aquí. Toca un pocket para ver sus movimientos o editarlo.</p>`
   :`<div class="empty"><span class="big">${ic('wallet')}</span>Aún no tienes pockets. Crea uno por cada pocket de Revolut (p. ej. Súper, Ocio, Comer fuera) con lo que le asignas al mes.<br><br><button class="btn primary" onclick="App.editPocket()">+ Crear pocket</button></div>`}</div>
   <div class="card section"><h2>Mis cuentas <small>${monthLabel(ui.month)}</small></h2><div class="accounts">${S.accounts.map(a=>{ const f=accFlows(a.id);
-    const extra = a.id==='traderepublic' && S.goals.length ? `<div class="flows" style="margin-top:6px"><span class="muted">En objetivos</span><b class="num">${eur(S.goals.reduce((x,g)=>x+g.saved,0))}</b></div>`:'';
+    const bal = (S.bank?.accounts||[]).filter(x=>appAccountFor({aspsp:x.aspsp})===a.id && x.balance && Number.isFinite(x.balance.amount)).reduce((s,x)=>s+x.balance.amount,0);
+    const hasBal = (S.bank?.accounts||[]).some(x=>appAccountFor({aspsp:x.aspsp})===a.id && x.balance);
+    const extra = (hasBal?`<div class="flows" style="margin-top:6px"><span class="muted">Saldo en el banco</span><b class="num">${eur(bal)}</b></div>`:'') + (a.id==='traderepublic' && S.goals.length ? `<div class="flows" style="margin-top:6px"><span class="muted">En objetivos</span><b class="num">${eur(S.goals.reduce((x,g)=>x+g.saved,0))}</b></div>`:'');
     return `<div class="acc" onclick="App.editAccount('${a.id}')"><div class="hd"><div class="ico" style="background:${a.color}22">${a.icon}</div>${esc(a.name)}</div><div class="role">${esc(a.role||'')}</div><div class="flows"><span class="muted">Entradas</span><b class="num green">${eur(f.i)}</b></div><div class="flows" style="margin-top:4px"><span class="muted">Salidas</span><b class="num">${eur(f.o)}</b></div>${extra}</div>`; }).join('')}
     <div class="acc" style="display:flex;align-items:center;justify-content:center;border-style:dashed;color:var(--muted)" onclick="App.editAccount()">+ Añadir cuenta</div></div></div>`;
 }
@@ -558,6 +560,15 @@ function viewSettings(){
     </div>
     <div class="card settings-list"><h2>Categorías de gasto <button class="btn sm" onclick="App.editCategory(null,'gasto')">+ Nueva</button></h2>${catList('gasto')}</div>
     <div class="card settings-list"><h2>Categorías de ingreso <button class="btn sm" onclick="App.editCategory(null,'ingreso')">+ Nueva</button></h2>${catList('ingreso')}</div>
+    <div class="card"><h2>Bancos y sincronización</h2>
+      <p class="hint" style="margin-top:0">Trae solos los movimientos de tus bancos desde tu servidor y guarda una copia para usar la app en el móvil y en el ordenador.</p>
+      <div class="field" style="margin-top:12px"><label>Dirección del servidor</label><input class="input" id="syncUrl" value="${esc(S.settings.syncUrl||DEF_SERVER)}" autocomplete="off"></div>
+      <div class="field"><label>Contraseña del servidor (APP_PASSWORD)</label><input class="input" id="syncPass" type="password" autocomplete="off" value="${esc(S.settings.syncPass||'')}"></div>
+      <div class="field"><label>Importar movimientos desde</label><input class="input" id="syncFrom" type="date" value="${esc(S.settings.syncFrom||todayStr())}"></div>
+      <div class="row-btns"><button class="btn primary" onclick="App.saveSync()">${syncOn()?'Guardar':'Conectar'}</button>${syncOn()?`<button class="btn" onclick="App.bankSync({fromBanks:true})">Sincronizar ahora</button><a class="btn ghost" href="${esc(S.settings.syncUrl)}/connect?t=${encodeURIComponent(S.settings.syncPass)}" target="_blank" rel="noopener">Gestionar bancos</a>`:''}</div>
+      ${syncOn()&&S.bank?`<p class="hint">Última consulta a los bancos: ${S.bank.last_sync?new Date(S.bank.last_sync).toLocaleString('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—'} · ${S.bank.accounts.length} cuenta(s)</p>${(S.bank.accounts||[]).filter(a=>a.error).map(a=>`<p class="hint red">${esc(a.aspsp)}: ${esc(a.error)}</p>`).join('')}`:''}
+      <p class="hint">Los traspasos entre tus cuentas y pockets no cuentan como gasto. Si cambias la categoría de un movimiento del banco, la app lo recordará para ese comercio.</p>
+    </div>
     <div class="card"><h2>Lectura de tickets con IA</h2>
       <p class="hint" style="margin-top:0">Haz una foto a un ticket o sube una factura (imagen o PDF) y Claude rellena el importe, la fecha, el comercio y la categoría. Tú solo revisas y guardas.</p>
       <p class="hint">Necesita tu clave de la API de Anthropic. Créala en <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (cada ticket cuesta alrededor de un céntimo). La clave se guarda solo en este navegador y no se incluye en las copias de seguridad.</p>
@@ -567,7 +578,7 @@ function viewSettings(){
     <div class="card"><h2>Widget para el iPhone</h2>
       <p class="hint" style="margin-top:0">Muestra en tu pantalla de inicio cuánto te queda en cada pocket. Usa la app gratuita <b>Scriptable</b>:</p>
       <ol class="hint" style="padding-left:18px;line-height:1.6"><li>Instala Scriptable desde la App Store.</li><li>Pulsa el botón de abajo para copiar el código del widget.</li><li>En Scriptable: <b>+</b> → pega el código → ponle de nombre “Pockets”.</li><li>Mantén pulsada la pantalla de inicio → <b>+</b> → Scriptable → widget mediano → edítalo y elige el script “Pockets”.</li></ol>
-      <p class="hint">Los datos se copian en el script, así que cuando quieras actualizar el widget vuelve a copiar y pegar. Más adelante se puede automatizar con un servidor.</p>
+      <p class="hint">${syncOn()?'Como tienes el servidor conectado, el widget se actualiza solo con el saldo real de tus pockets. El código incluye la contraseña del servidor: no lo compartas.':'Sin servidor, los datos se copian en el script: vuelve a copiarlo cuando quieras actualizarlo. Con el servidor conectado se actualiza solo.'}</p>
       <button class="btn primary block" style="margin-top:10px" onclick="App.widget()">Copiar código del widget</button>
     </div>
     <div class="card"><h2>Copia de seguridad</h2>
@@ -644,6 +655,7 @@ function openMovement(id, preset={}){
       const rec={...st, amount, date, method:val('mMethod'), accountId:val('mAccount')||'', pocketId: st.type==='gasto'?(val('mPocket')||''):'', note:val('mNote').trim()};
       const before = rec.type==='gasto' ? snapshotLevels(ymOf(date)) : null;
       delete rec.aiNote;
+      if(m && m.bankId && m.merchantKey && rec.categoryId!==m.categoryId){ (S.settings.merchantMap=S.settings.merchantMap||{})[m.merchantKey]=rec.categoryId; }
       if(m){ Object.assign(m, rec); m.sample=false; } else { rec.id=uid(); rec._t=Date.now(); rec.sample=false; S.movements.push(rec); }
       save(); closeModal();
       if(ymOf(date)!==ui.month) ui.month=ymOf(date);
@@ -829,12 +841,12 @@ function exportCSV(scope){
   download(scope==='all'?'movimientos-todos.csv':`movimientos-${ui.month}.csv`, csv, 'text/csv;charset=utf-8');
   toast(`Exportados ${list.length} movimientos`,'ok');
 }
-function backup(){ const c=JSON.parse(JSON.stringify(S)); delete c.settings.apiKey; download(`finanzas-copia-${todayStr()}.json`, JSON.stringify(c,null,1), 'application/json'); toast('Copia descargada','ok'); }
+function backup(){ const c=JSON.parse(JSON.stringify(S)); delete c.settings.apiKey; delete c.settings.syncPass; download(`finanzas-copia-${todayStr()}.json`, JSON.stringify(c,null,1), 'application/json'); toast('Copia descargada','ok'); }
 function importBackup(file){
   const r=new FileReader();
   r.onload=()=>{ try{ const d=JSON.parse(r.result); if(!d || !Array.isArray(d.movements) || !Array.isArray(d.categories)) throw new Error('El archivo no es una copia de esta app');
       if(!confirm(`Se reemplazarán tus datos actuales por la copia (${d.movements.length} movimientos). ¿Continuar?`)) return;
-      const key=S.settings.apiKey; S=d; migrate(); if(key) S.settings.apiKey=key; runRecurring(); save(); render(); toast('Copia importada correctamente','ok'); }
+      const keep={apiKey:S.settings.apiKey, syncPass:S.settings.syncPass, syncUrl:S.settings.syncUrl}; S=d; migrate(); Object.assign(S.settings, keep); runRecurring(); save(); render(); toast('Copia importada correctamente','ok'); }
     catch(e){ toast('No se pudo importar: '+e.message,'over'); } };
   r.readAsText(file);
 }
@@ -904,16 +916,19 @@ function clearSample(){
   (S.settings.sampleBudgets||[]).forEach(id=>{ const c=S.categories.find(x=>x.id===id); if(c) c.budget=0; }); S.settings.sampleBudgets=[];
   S.settings.demo=false; save(); render(); toast('Listo. ¡A empezar de cero!','ok');
 }
-function wipe(){ if(!confirm('¿Borrar TODOS tus datos? Esto no se puede deshacer (descarga antes una copia si quieres).')) return; const key=S.settings.apiKey; S=defaultState(); if(key) S.settings.apiKey=key; RDB.clear().catch(()=>{}); save(); ui.month=ymOf(todayStr()); render(); toast('Todo borrado','ok'); }
+function wipe(){ if(!confirm('¿Borrar TODOS tus datos? Esto no se puede deshacer (descarga antes una copia si quieres).')) return; const keep={apiKey:S.settings.apiKey, syncPass:S.settings.syncPass, syncUrl:S.settings.syncUrl}; S=defaultState(); Object.assign(S.settings, keep); RDB.clear().catch(()=>{}); save(); ui.month=ymOf(todayStr()); render(); toast('Todo borrado','ok'); }
 
 /* ============ Widget Scriptable ============ */
 function widgetCode(){
   const ym=ymOf(todayStr());
   const data={mes:monthLabel(ym), actualizado:new Date().toLocaleString('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}),
-    pockets:S.pockets.map(p=>({n:p.name,i:p.icon,c:p.color,a:p.monthly,g:pocketSpent(p.id,ym)}))};
+    pockets:S.pockets.map(p=>({n:p.name,i:p.icon,c:p.color,a:+p.monthly||0,g:pocketSpent(p.id,ym),b:pocketBalance(p),uid:p.bankUid||''}))};
   return `// Widget "Pockets" generado por Mis Finanzas
 // Vuelve a copiarlo desde la app para actualizar los datos.
-const DATA = ${JSON.stringify(data)};
+let DATA = ${JSON.stringify(data)};
+const SERVER = ${JSON.stringify(syncOn()?S.settings.syncUrl:'')}, PASS = ${JSON.stringify(syncOn()?S.settings.syncPass:'')};
+if (SERVER) { try { const rq = new Request(SERVER + '/api/widget'); rq.headers = { authorization: 'Bearer ' + PASS }; rq.timeoutInterval = 10; const j = await rq.loadJSON(); if (j && j.pockets && j.pockets.length) { DATA = j; const d = j.last_sync || j.updated; DATA.actualizado = d ? new Date(d).toLocaleString('es-ES', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }) : ''; } } catch (e) {} }
+const leftOf = p => (p.b !== undefined && p.b !== null) ? p.b : (p.a - p.g);
 
 function eur(n){ const neg=n<0; let [i,d]=Math.abs(n).toFixed(2).split('.'); i=i.replace(/\\B(?=(\\d{3})+(?!\\d))/g,'.'); return (neg?'-':'')+i+','+d+' €'; }
 function bar(frac, color, w){
@@ -931,7 +946,7 @@ w.setPadding(12,14,12,14);
 const head = w.addStack(); head.centerAlignContent();
 const t = head.addText('Pockets'); t.font=Font.semiboldSystemFont(13); t.textColor=C('#1d1d1f','#f5f5f7');
 head.addSpacer();
-const totalLeft = DATA.pockets.reduce((s,p)=>s+(p.a-p.g),0);
+const totalLeft = DATA.pockets.reduce((s,p)=>s+leftOf(p),0);
 const tl = head.addText(eur(totalLeft)); tl.font=Font.boldSystemFont(13); tl.textColor=totalLeft<0?new Color('#d70015'):C('#248a3d','#30d158');
 w.addSpacer(6);
 const max = fam==='small' ? 3 : fam==='large' ? 10 : 4;
@@ -940,14 +955,14 @@ for (const p of DATA.pockets.slice(0,max)) {
   const row = w.addStack(); row.centerAlignContent();
   const n = row.addText(p.i+' '+p.n); n.font=Font.mediumSystemFont(11); n.textColor=C('#1d1d1f','#f5f5f7'); n.lineLimit=1;
   row.addSpacer();
-  const left = p.a-p.g;
+  const left = leftOf(p);
   const v = row.addText(eur(left)); v.font=Font.boldSystemFont(11); v.textColor=left<0?new Color('#d70015'):C('#1d1d1f','#f5f5f7');
   w.addSpacer(3);
-  w.addImage(bar(p.a?p.g/p.a:0, p.c, barW)).imageSize=new Size(barW,6);
+  w.addImage(bar(p.a?(p.a-left)/p.a:0, p.c, barW)).imageSize=new Size(barW,6);
   w.addSpacer(5);
 }
 w.addSpacer();
-const f = w.addText(DATA.mes+' · '+DATA.actualizado); f.font=Font.systemFont(9); f.textColor=new Color('#86868b');
+const f = w.addText([DATA.mes, DATA.actualizado].filter(Boolean).join(' · ')); f.font=Font.systemFont(9); f.textColor=new Color('#86868b');
 Script.setWidget(w);
 if (config.runsInApp) await w.presentMedium();
 Script.complete();
@@ -1101,6 +1116,191 @@ async function onScanFile(file){
   }
 }
 
+
+/* ============ Sincronización con el servidor (bancos, copia en la nube, widget) ============ */
+const DEF_SERVER = 'https://finanzas-sync.juanbaezmican.workers.dev';
+const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+const syncOn = () => !!(S.settings.syncUrl && S.settings.syncPass);
+async function api(path, opts={}){
+  const url = S.settings.syncUrl.replace(/\/+$/,'') + path;
+  const r = await fetch(url, { ...opts, headers:{ authorization:'Bearer '+S.settings.syncPass.trim(), 'content-type':'application/json', ...(opts.headers||{}) } });
+  if(r.status===401) throw new Error('La contraseña del servidor no es correcta');
+  let j=null; try{ j=await r.json(); }catch(e){}
+  if(!r.ok) throw new Error((j&&j.error) || ('Error del servidor ('+r.status+')'));
+  return j;
+}
+const pocketBalance = p => { const a = p.bankUid && (S.bank?.accounts||[]).find(x=>x.uid===p.bankUid); return a && a.balance && Number.isFinite(a.balance.amount) ? a.balance.amount : null; };
+function pocketLeft(p, ym){ const b = ym===ymOf(todayStr()) ? pocketBalance(p) : null; return b!=null ? b : round2((+p.monthly||0) - pocketSpent(p.id, ym)); }
+
+const MCC = [[/^5411|^5499/, 'super'], [/^581[234]/, 'fuera'], [/^554[12]|^7523|^41(11|21|31)|^4784|^7538/, 'transporte'], [/^5912|^80(11|21|62)|^7997/, 'salud'], [/^56(51|61|91|99)|^5621|^5641/, 'ropa'], [/^4899|^581[5-8]/, 'subs'], [/^78(32|41)|^79(22|91|94|96)/, 'ocio'], [/^5200|^57(12|19)|^4900|^4814|^5251/, 'hogar'], [/^5947|^5992/, 'regalos']];
+const RULES = [
+  [/mercadona|lidl|carrefour|\bdia\b|alcampo|eroski|\baldi\b|consum|ahorramas|hipercor|supermerc|bonpreu|gadis|froiz|el corte ingles super/, 'super'],
+  [/restaur|\bbar\b|cafe|cafeteria|burger|mcdonald|telepizza|glovo|just eat|uber eats|deliveroo|kfc|starbucks|pizza|sushi|taberna|tapas|cerveceria|foodhall|domino/, 'fuera'],
+  [/repsol|cepsa|\bbp\b|galp|shell|gasolin|petronor|ballenoil|plenoil|parking|aparcamiento|peaje|autopista|renfe|\bmetro\b|\bemt\b|cabify|\buber\b|\bbolt\b|taxi|\bitv\b|alsa/, 'transporte'],
+  [/netflix|spotify|\bhbo\b|\bmax\b|disney|prime video|amazon prime|icloud|apple com bill|google one|youtube|chatgpt|openai|anthropic|claude ai|dazn|filmin|crunchyroll|playstation plus|xbox game pass/, 'subs'],
+  [/farmacia|clinica|dentist|hospital|gimnas|\bgym\b|basic fit|altafit|mcfit|holiday gym|sanitas|adeslas|\bdkv\b|optica|fisio/, 'salud'],
+  [/zara|pull bear|bershka|stradivarius|mango|primark|\bh m\b|decathlon|nike|adidas|shein|zalando|massimo dutti|lefties|jd sports|foot locker/, 'ropa'],
+  [/ikea|leroy merlin|bricomart|ferreteria|endesa|iberdrola|naturgy|holaluz|canal de isabel|vodafone|orange|movistar|\bdigi\b|jazztel|lowi|simyo|pepephone|aliexpress|amazon/, 'hogar'],
+  [/cine|cinesa|yelmo|steam|playstation|nintendo|ticketmaster|entradas|concierto|padel|bolera|museo|fnac|spotify concert/, 'ocio'],
+  [/alquiler|hipoteca|\brent\b|comunidad de propietarios/, 'alquiler'],
+  [/seguro|mapfre|mutua|allianz|axa|linea directa/, 'transporte'],
+];
+const INC_RULES = [[/nomina|salario|payroll|haberes/, 'nomina'], [/bizum/, 'extras']];
+function merchantKey(tx){ return norm(tx.counterparty || tx.description).split(' ').slice(0,3).join(' '); }
+function guessCategory(tx, pk){
+  const key = merchantKey(tx); const learned = (S.settings.merchantMap||{})[key];
+  if(learned && S.categories.some(c=>c.id===learned)) return { id:learned, sure:true };
+  const text = norm(tx.counterparty+' '+tx.description);
+  if(tx.type==='ingreso'){ for(const [re,id] of INC_RULES) if(re.test(text)) return { id, sure:true }; return { id: tx.amount>=600 ? 'nomina' : 'otros_i', sure: false }; }
+  if(tx.mcc) for(const [re,id] of MCC) if(re.test(String(tx.mcc))) return { id, sure:true };
+  for(const [re,id] of RULES) if(re.test(text)) return { id, sure:true };
+  if(pk && (pk.categories||[]).length) return { id: pk.categories[0], sure:false };
+  return { id:'otros_g', sure:false };
+}
+function guessMethod(tx){
+  const t = norm(tx.description);
+  if(/bizum/.test(t)) return 'Bizum';
+  if(/recibo|adeudo|domicil|cargo/.test(t)) return 'Domiciliación';
+  if(/transfer|traspaso/.test(t)) return tx.type==='ingreso' ? 'Transferencia' : 'Transferencia';
+  if(/cajero|atm|retirada/.test(t)) return 'Efectivo';
+  return tx.type==='ingreso' ? 'Transferencia' : 'Tarjeta';
+}
+function appAccountFor(tx){
+  const a = norm(tx.aspsp);
+  for(const [re,id] of [[/santander/,'santander'],[/bbva/,'bbva'],[/revolut/,'revolut'],[/trade/,'traderepublic']]) if(re.test(a) && S.accounts.some(x=>x.id===id)) return id;
+  const hit = S.accounts.find(x=>a.includes(norm(x.name))); return hit ? hit.id : '';
+}
+const isMainRevolut = a => !!a.iban || /^(eur( euro)?|euro|main|principal|cuenta principal|current)$/.test(norm(a.name));
+
+// Revolut envía cada pocket como una cuenta propia: se crean o enlazan con los pockets de la app
+function linkPockets(accounts){
+  let created=0;
+  accounts.filter(a=>/revolut/i.test(a.aspsp) && !isMainRevolut(a)).forEach((a,i)=>{
+    let p = S.pockets.find(x=>x.bankUid===a.uid) || S.pockets.find(x=>!x.bankUid && norm(x.name)===norm(a.name));
+    if(!p){ p = { id:uid(), name:a.name, icon:'👛', color:COLORS[(S.pockets.length+i)%COLORS.length], monthly:0, categories:[] }; S.pockets.push(p); created++; }
+    p.bankUid = a.uid; delete p.sample;
+  });
+  return created;
+}
+
+function markInternal(txs){
+  // Un traspaso entre tus cuentas o pockets aparece dos veces (salida y entrada): se detecta por pares
+  const out = new Set(txs.filter(t=>t.internal).map(t=>t.id));
+  const byAmt = {};
+  for(const t of txs){ (byAmt[t.amount.toFixed(2)] = byAmt[t.amount.toFixed(2)] || []).push(t); }
+  for(const list of Object.values(byAmt)){
+    for(const a of list){ if(out.has(a.id)) continue;
+      const b = list.find(x=>x.id!==a.id && !out.has(x.id) && x.account_uid!==a.account_uid && x.type!==a.type && Math.abs(new Date(x.date)-new Date(a.date))<=2*864e5);
+      if(b){ out.add(a.id); out.add(b.id); } } }
+  for(const t of txs) if(/trade republic/.test(norm(t.counterparty+' '+t.description))) out.add(t.id); // ahorro hacia Trade Republic
+  return out;
+}
+
+async function aiClassify(items){
+  if(!(S.settings.apiKey||'').trim() || !items.length) return {};
+  const Anthropic = await loadSDK();
+  const client = new Anthropic({ apiKey:S.settings.apiKey.trim(), dangerouslyAllowBrowser:true });
+  const ids = S.categories.map(c=>c.id);
+  const schema = { type:'object', additionalProperties:false, required:['items'], properties:{ items:{ type:'array', items:{ type:'object', additionalProperties:false, required:['i','categoria_id'], properties:{ i:{type:'integer'}, categoria_id:{type:'string', enum:ids} } } } } };
+  const list = items.map((t,i)=>`${i}. [${t.type}] ${t.amount.toFixed(2)} € · ${t.counterparty||''} · ${t.description}${t._pocket?' · pocket '+t._pocket:''}`).join('\n');
+  const cats = S.categories.map(c=>`- ${c.id}: ${c.name} (${c.type})`).join('\n');
+  const response = await client.beta.messages.create({
+    model:'claude-opus-5-5', max_tokens:16000,
+    betas:['server-side-fallback-2026-07-01'], fallbacks:'default',
+    output_config:{ effort:'low', format:{ type:'json_schema', schema } },
+    messages:[{ role:'user', content:`Clasifica estos movimientos bancarios de una persona en España en la categoría que mejor encaje. Usa solo ids de tipo "gasto" para gastos y de tipo "ingreso" para ingresos.\n\nCategorías:\n${cats}\n\nMovimientos:\n${list}\n\nDevuelve un elemento por movimiento con su índice i.` }],
+  });
+  if(response.stop_reason!=='end_turn') return {};
+  try{ const d = JSON.parse(response.content.filter(b=>b.type==='text').map(b=>b.text).join('')); const out={}; for(const x of d.items||[]) out[x.i]=x.categoria_id; return out; }catch(e){ return {}; }
+}
+
+let syncing = false;
+async function bankSync({ fromBanks=false, quiet=false }={}){
+  if(!syncOn() || syncing) return;
+  syncing = true;
+  try{
+    if(fromBanks){ if(!quiet) toast('Consultando tus bancos…'); await api('/api/sync', { method:'POST' }); }
+    const data = await api('/api/data');
+    S.bank = { accounts:data.accounts||[], last_sync:data.last_sync, fetched:new Date().toISOString(), log:data.log||[] };
+    const newPockets = linkPockets(S.bank.accounts);
+    const from = S.settings.syncFrom || todayStr();
+    const txs = (data.transactions||[]).filter(t=>t.date && t.date>=from && t.amount>0);
+    const internal = markInternal(data.transactions||[]);
+    const seen = S.settings.bankSeen = S.settings.bankSeen || {};
+    const byBankId = new Map(S.movements.filter(m=>m.bankId).map(m=>[m.bankId,m]));
+    const fresh=[]; let linked=0, updated=0;
+    for(const t of txs){
+      if(internal.has(t.id)) continue;
+      const pending = t.status && t.status!=='BOOK';
+      const ex = byBankId.get(t.id);
+      if(ex){ if(ex.bankPending && !pending){ ex.bankPending=false; updated++; } continue; }
+      if(seen[t.id]) continue; // borrado por ti: no se vuelve a importar
+      const pk = S.pockets.find(p=>p.bankUid && p.bankUid===t.account_uid);
+      const accountId = pk ? 'revolut' : appAccountFor(t);
+      const near = (m, days) => Math.abs(new Date(m.date)-new Date(t.date)) <= days*864e5;
+      // 1) movimiento pendiente que ahora llega confirmado (cambia de id)
+      let match = S.movements.find(m=>m.bankPending && m.bankAccount===t.account_uid && m.type===t.type && Math.abs(m.amount-t.amount)<0.01 && near(m,4));
+      // 2) ticket o gasto apuntado a mano
+      if(!match) match = S.movements.find(m=>!m.bankId && !m.recurringId && !m.sample && m.type===t.type && Math.abs(m.amount-t.amount)<0.01 && near(m,3));
+      // 3) gasto fijo generado automáticamente (nómina, coche, gimnasio…): importe parecido
+      if(!match) match = S.movements.find(m=>!m.bankId && m.recurringId && m.type===t.type && Math.abs(m.amount-t.amount)<=Math.max(1, m.amount*0.15) && near(m,6) && (!m.accountId || !accountId || m.accountId===accountId));
+      if(match){ Object.assign(match, { bankId:t.id, bankAccount:t.account_uid, bankPending:pending, amount:t.amount, date:t.date, accountId: match.accountId||accountId, pocketId: match.pocketId || (pk?pk.id:''), sample:false }); seen[t.id]=1; linked++; continue; }
+      const g = guessCategory(t, pk);
+      const mv = { id:uid(), type:t.type, amount:t.amount, categoryId:g.id, date:t.date, method:guessMethod(t), accountId, pocketId: t.type==='gasto' && pk ? pk.id : '', note:(t.counterparty || t.description).slice(0,80), recurringId:'', sample:false,
+        bankId:t.id, bankAccount:t.account_uid, bankPending:pending, bankDesc:t.description.slice(0,160), merchantKey:merchantKey(t), _t:Date.now() };
+      if(!mv.pocketId && t.type==='gasto' && accountId==='revolut'){ const p2=S.pockets.find(p=>(p.categories||[]).includes(g.id)); if(p2) mv.pocketId=p2.id; }
+      if(!g.sure) fresh.push({ mv, t:{...t, _pocket: pk?pk.name:''} });
+      S.movements.push(mv); seen[t.id]=1;
+    }
+    const added = txs.filter(t=>byBankId.get(t.id)===undefined && seen[t.id]).length;
+    if(fresh.length){
+      try{ const res = await aiClassify(fresh.slice(0,80).map(x=>x.t)); fresh.slice(0,80).forEach((x,i)=>{ const c=res[i] && S.categories.find(cc=>cc.id===res[i] && cc.type===x.mv.type); if(c) x.mv.categoryId=c.id; }); }
+      catch(e){ console.warn('IA', e); }
+    }
+    S.settings.lastBankImport = new Date().toISOString();
+    save(); render();
+    const n = S.movements.filter(m=>m.bankId && seen[m.bankId] && m._t && Date.now()-m._t<60000).length;
+    if(!quiet || n) toast(n ? `${n} movimiento${n>1?'s':''} nuevo${n>1?'s':''} del banco${linked?` · ${linked} enlazado${linked>1?'s':''}`:''}` : (linked ? `${linked} movimiento${linked>1?'s':''} enlazado${linked>1?'s':''} con el banco` : 'Todo al día'), 'ok');
+    if(newPockets && !quiet) setTimeout(()=>toast(`He creado ${newPockets} pocket${newPockets>1?'s':''} a partir de Revolut. Ponles lo que les asignas al mes.`), 2600);
+  }catch(e){ console.warn(e); if(!quiet) toast(e.message || 'No se pudo sincronizar','over'); }
+  finally{ syncing=false; }
+}
+
+// ---- Copia en la nube (mismo estado en móvil y ordenador) + datos para el widget ----
+let pushT=null, pulling=false;
+function cleanState(){ const c=JSON.parse(JSON.stringify(S)); delete c.settings.apiKey; delete c.settings.syncPass; delete c.settings.syncUrl; return c; }
+function widgetPayload(){ const ym=ymOf(todayStr()); return { mes:monthLabel(ym), pockets:S.pockets.map(p=>({ n:p.name, i:p.icon, c:p.color, a:+p.monthly||0, g:pocketSpent(p.id,ym), uid:p.bankUid||'' })) }; }
+function schedulePush(){ if(!syncOn() || pulling) return; clearTimeout(pushT); pushT=setTimeout(pushState, 2500); }
+async function pushState(){
+  if(!syncOn()) return;
+  try{ const r = await api('/api/state', { method:'PUT', body: JSON.stringify({ state:cleanState(), updated:S.settings.updatedAt, device:navigator.userAgent.slice(0,60), widget:widgetPayload() }) }); S.settings.pushedAt=r.updated; localStorage.setItem(KEY, JSON.stringify(S)); }
+  catch(e){ console.warn('push', e); }
+}
+async function pullState({ ask=false }={}){
+  if(!syncOn()) return false;
+  try{
+    const r = await api('/api/state');
+    if(!r || !r.state) return false;
+    if(r.updated && S.settings.updatedAt && r.updated <= S.settings.updatedAt) return false;
+    if(ask && !confirm('Hay datos guardados en tu servidor (de otro dispositivo). ¿Quieres usarlos en este dispositivo? Se sustituirán los datos de aquí.')) return false;
+    const keep = { apiKey:S.settings.apiKey, syncPass:S.settings.syncPass, syncUrl:S.settings.syncUrl };
+    pulling = true; S = r.state; migrate(); Object.assign(S.settings, keep); S.settings.updatedAt = r.updated; localStorage.setItem(KEY, JSON.stringify(S)); pulling=false;
+    render(); return true;
+  }catch(e){ pulling=false; console.warn('pull', e); return false; }
+}
+async function saveSync(){
+  const url=(document.getElementById('syncUrl')?.value||'').trim().replace(/\/+$/,''), pass=(document.getElementById('syncPass')?.value||'').trim(), from=document.getElementById('syncFrom')?.value||'';
+  if(!/^https:\/\//.test(url)){ toast('La dirección del servidor debe empezar por https://','over'); return; }
+  if(!pass){ toast('Escribe la contraseña del servidor','over'); return; }
+  S.settings.syncUrl=url; S.settings.syncPass=pass; if(from) S.settings.syncFrom=from;
+  try{ await api('/api/data?since=2999-01-01'); }catch(e){ toast(e.message,'over'); return; }
+  localStorage.setItem(KEY, JSON.stringify(S));
+  const pulled = await pullState({ ask:true });
+  if(!pulled && S.settings.demo && confirm('Todavía tienes los datos de ejemplo. ¿Los borro antes de traer tus movimientos reales?')){ const c=window.confirm; window.confirm=()=>true; try{ clearSample(); } finally{ window.confirm=c; } }
+  save(); render(); toast('Servidor conectado','ok');
+  bankSync();
+}
+
 /* ============ Toast ============ */
 let toastT;
 function toast(msg, kind=''){ document.querySelectorAll('.toast').forEach(x=>x.remove()); const d=document.createElement('div'); d.className='toast '+kind; d.textContent=msg; document.body.appendChild(d); clearTimeout(toastT); toastT=setTimeout(()=>d.remove(), kind==='over'||kind==='warn'?4200:2400); }
@@ -1121,7 +1321,7 @@ window.App = {
   filter(k,v){ ui.f[k]=v; if(k==='type' && v && ui.f.cat && cat(ui.f.cat).type!==v) ui.f.cat=''; const pos = k==='q' ? document.activeElement.selectionStart : null; render(); if(k==='q'){ const s=document.querySelector('.search'); s.focus(); s.setSelectionRange(pos,pos); } },
   clearFilters(){ ui.f={q:'',cat:'',type:'',method:'',where:''}; render(); },
   openMovement, delMovement, editCategory, editBudget, editRecurring, editPocket, pocketDetail, editAccount, editGoal, goalDetail,
-  exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan,
+  exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan, saveSync, bankSync,
   saveKey(){ const v=(document.getElementById('apiKey')?.value||'').trim(); if(v && !/^sk-ant-/.test(v)){ toast('La clave debería empezar por sk-ant-','over'); return; } S.settings.apiKey=v; save(); render(); toast(v?'Clave guardada':'Clave eliminada','ok'); },
   _state:()=>S, _totals:totals,
 };
@@ -1133,8 +1333,9 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
 const fresh = load();
 makeIcon();
 if(fresh){ loadSample(); } else { runRecurring(); render(); }
+if(syncOn()){ pullState().then(()=>bankSync({quiet:true})); }
 // Si la app queda abierta y cambia el día, apunta los recurrentes
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden && runRecurring()) render(); });
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) return; if(runRecurring()) render(); if(syncOn() && Date.now()-new Date(S.bank?.fetched||0) > 20*60000) pullState().then(()=>bankSync({quiet:true})); });
 })();
 </script>
 </body>

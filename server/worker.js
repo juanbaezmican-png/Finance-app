@@ -286,7 +286,14 @@ export default {
         if (body.widget) await putJSON(env, 'widget', { ...body.widget, updated: rec.updated });
         return json({ ok: true, updated: rec.updated });
       }
-      if (url.pathname === '/api/widget') return json((await getJSON(env, 'widget', null)) || { pockets: [] });
+      if (url.pathname === '/api/widget') {
+        // Configuración de pockets que envía la app + saldos reales que el cron descarga de Revolut
+        const [w, bal, meta] = await Promise.all([getJSON(env, 'widget', null), getJSON(env, 'balances', {}), getJSON(env, 'meta', {})]);
+        const out = w || { pockets: [] };
+        out.pockets = (out.pockets || []).map(p => (p.uid && bal[p.uid] && Number.isFinite(bal[p.uid].amount)) ? { ...p, b: bal[p.uid].amount } : p);
+        out.last_sync = meta.last_sync || null;
+        return json(out);
+      }
       return json({ error: 'not found' }, 404);
     } catch (e) {
       console.error(e);

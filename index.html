@@ -536,18 +536,108 @@ function viewPockets(){
 }
 
 /* ============ Plan del mes (reparto al cobrar) ============ */
-function planFor(ym){
+/* ============ Previsión de ingresos y ahorro ============ */
+// S.incomeForecast = { base, half, halfMonths:[4,9], full, fullMonths:[7,12], overrides:{ 'YYYY-MM': { amount, note } } }
+const MESES_CORTOS = MESES.map(m=>m[0].toUpperCase()+m.slice(1,3));
+function forecastIncome(ym){
+  const f=S.incomeForecast; if(!f) return null;
+  const o=f.overrides && f.overrides[ym]; if(o && o.amount!=null) return round2(o.amount);
+  const m=+ym.slice(5); let v=+f.base||0;
+  if((f.halfMonths||[]).includes(m)) v+=+f.half||0;
+  if((f.fullMonths||[]).includes(m)) v+=+f.full||0;
+  return round2(v);
+}
+function forecastLabel(ym){
+  const f=S.incomeForecast; if(!f) return '';
+  const o=f.overrides && f.overrides[ym]; if(o) return o.note || 'mes especial';
+  const m=+ym.slice(5);
+  if((f.fullMonths||[]).includes(m)) return 'paga extra';
+  if((f.halfMonths||[]).includes(m)) return 'media paga extra';
+  return '';
+}
+// Ahorro de partida: saldo de Trade Republic si está conectado; si no, lo guardado en objetivos
+function savingsNow(){
+  const tr=(S.bank?.accounts||[]).filter(a=>/trade/i.test(a.aspsp) && a.balance && Number.isFinite(a.balance.amount));
+  if(tr.length) return { amount: round2(tr.reduce((s,a)=>s+a.balance.amount,0)), src:'saldo de Trade Republic' };
+  return { amount: round2(S.goals.reduce((s,g)=>s+(+g.saved||0),0)), src:'lo guardado en tus objetivos' };
+}
+function forecastRows(n){
+  const start=ymOf(todayStr()); const rows=[]; let acc=savingsNow().amount;
+  for(let i=0;i<n;i++){
+    const ym=addMonths(start,i), pt=planTotals(ym);
+    const extra=Math.max(pt.free,0);
+    acc=round2(acc+pt.saving+extra);
+    rows.push({ ym, inc:pt.inc, fixed:pt.fixed, pockets:pt.pockets, saving:pt.saving, free:pt.free, acc, label:forecastLabel(ym) });
+  }
+  return rows;
+}
+function forecastCard(){
+  const n=ui.fcN||6, rows=forecastRows(n), start=savingsNow();
+  if(!S.incomeForecast) return `<div class="card section"><h2>Previsión de los próximos meses</h2>
+    <p class="hint" style="margin-top:0">Apunta lo que esperas cobrar cada mes (nómina, pagas extra, medias pagas y bonus) y verás cuánto tendrás ahorrado de aquí a unos meses.</p>
+    <button class="btn primary" style="margin-top:12px" onclick="App.editForecast()">Configurar mis ingresos previstos</button></div>`;
+  const max=Math.max(...rows.map(r=>r.acc), start.amount, 1);
+  const W=360,H=120, step=W/rows.length;
+  const pts=[[0,start.amount],...rows.map((r,i)=>[(i+1)*step,r.acc])];
+  const y=v=>H-14-(v/max)*(H-34);
+  const chart=`<div class="chart" style="margin:4px 0 6px"><svg viewBox="0 0 ${W} ${H}"><polyline points="${pts.map(([x,v])=>`${x.toFixed(1)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${pts.map(([x,v],i)=>`<circle cx="${x.toFixed(1)}" cy="${y(v).toFixed(1)}" r="${i?3.5:3}" fill="#fff" stroke="var(--green)" stroke-width="2"><title>${eur(v)}</title></circle>`).join('')}<text x="${W-2}" y="${Math.max(y(rows[rows.length-1].acc)-8,10)}" text-anchor="end" font-size="11" font-weight="600" fill="var(--green)">${eurK(rows[rows.length-1].acc)}</text>${rows.map((r,i)=>`<text x="${((i+1)*step).toFixed(1)}" y="${H-1}" text-anchor="middle" font-size="10" fill="var(--muted)">${MESES_C[+r.ym.slice(5)-1]}</text>`).join('')}</svg></div>`;
+  return `<div class="card section"><h2>Previsión <small><span class="seg" style="display:inline-flex;margin:0;padding:2px">${[3,6,12].map(k=>`<button class="${k===n?'on':''}" style="padding:4px 10px;font-size:12px" onclick="App.fcMonths(${k})">${k} m</button>`).join('')}</span></small></h2>
+    <div class="stat"><div class="lbl">Ahorro previsto en ${monthLabel(rows[rows.length-1].ym)}</div><div class="val num green">${eur(rows[rows.length-1].acc,0)}</div><div class="sub">Partes de ${eur(start.amount,0)} (${start.src}) y sumas el ahorro y lo que quede sin asignar cada mes.</div></div>
+    ${chart}
+    ${rows.map(r=>`<div class="item pi" style="cursor:pointer" onclick="App.setMonth('${r.ym}');window.scrollTo({top:0,behavior:'smooth'})"><div class="body"><div class="t"><span style="text-transform:capitalize">${monthLabel(r.ym)}${r.label?`<span class="tag rec">${esc(r.label)}</span>`:''}</span><span class="num green">+${eur(r.saving+Math.max(r.free,0),0)}</span></div><div class="s"><span>Entra <b class="num">${eur(r.inc,0)}</b> · fijos ${eur(r.fixed,0)} · pockets ${eur(r.pockets,0)}${r.free<0?` · <span class="red">faltan ${eur(-r.free,0)}</span>`:''}</span><span class="num">${eur(r.acc,0)}</span></div></div></div>`).join('')}
+    <div class="row-btns" style="margin-top:12px"><button class="btn sm" onclick="App.editForecast()">Editar ingresos previstos</button></div>
+    <p class="hint">Toca un mes para ver y ajustar su plan. Los meses futuros copian el reparto del mes anterior.</p></div>`;
+}
+function editForecast(){
+  const f=S.incomeForecast || { base:'', half:'', halfMonths:[4,9], full:'', fullMonths:[7,12], overrides:{} };
+  const st={ halfMonths:[...(f.halfMonths||[])], fullMonths:[...(f.fullMonths||[])], overrides:JSON.parse(JSON.stringify(f.overrides||{})) };
+  const money=v=>v!==''&&v!=null?fmtNum(v).replace(/\./g,''):'';
+  const monthChips=(key)=>`<div class="chips" style="grid-template-columns:repeat(6,1fr)" data-k="${key}">${MESES_CORTOS.map((m,i)=>`<button type="button" class="chip ${st[key].includes(i+1)?'on':''}" data-m="${i+1}" style="padding:8px 2px">${m}</button>`).join('')}</div>`;
+  const ovRows=()=>Object.keys(st.overrides).sort().map(k=>`<div class="item"><div class="body"><div class="t"><span style="text-transform:capitalize">${monthLabel(k)}</span><span class="num">${eur(st.overrides[k].amount)}</span></div><div class="s"><span>${esc(st.overrides[k].note||'')}</span></div></div><button type="button" class="btn sm ghost" data-del="${k}">Quitar</button></div>`).join('') || '<p class="hint">Ninguno. Añade aquí los meses con bonus, atrasos o cifras distintas.</p>';
+  modal('Ingresos previstos', `
+    <p class="hint" style="margin-top:0">Cantidades <b>netas</b> (lo que te llega al banco). Se guardan solo en tu app y en tu servidor.</p>
+    <div class="field" style="margin-top:12px"><label>Nómina normal al mes</label><input class="input" id="fcBase" inputmode="decimal" placeholder="Ej. 1.750 €" value="${money(f.base)}"></div>
+    <div class="field"><label>Media paga extra: importe extra</label><input class="input" id="fcHalf" inputmode="decimal" placeholder="Ej. 970 €" value="${money(f.half)}"></div>
+    <div class="field"><label>¿En qué meses?</label>${monthChips('halfMonths')}</div>
+    <div class="field"><label>Paga extra completa: importe extra</label><input class="input" id="fcFull" inputmode="decimal" placeholder="Ej. 1.940 €" value="${money(f.full)}"></div>
+    <div class="field"><label>¿En qué meses?</label>${monthChips('fullMonths')}</div>
+    <div class="card" style="margin:6px 0 14px"><b>Meses especiales</b> <span class="hint">(bonus, atrasos…: sustituyen la cifra de ese mes)</span><div id="ovList">${ovRows()}</div>
+      <div class="f2" style="margin-top:10px"><input class="input" type="month" id="ovMonth" aria-label="Mes"><input class="input" id="ovAmt" inputmode="decimal" placeholder="Total neto €" aria-label="Importe"></div>
+      <input class="input" id="ovNote" placeholder="Nota, p. ej. Bonus + atraso" maxlength="40" style="margin-top:8px">
+      <button type="button" class="btn sm" id="ovAdd" style="margin-top:8px">+ Añadir mes especial</button></div>
+    <button class="btn primary block" id="fcSave">Guardar previsión</button>
+    ${S.incomeForecast?'<button class="btn danger block" style="margin-top:8px" id="fcDel">Borrar previsión</button>':''}`, o=>{
+    o.querySelectorAll('.chips[data-k]').forEach(box=>box.addEventListener('click',e=>{ const b=e.target.closest('.chip'); if(!b) return; const k=box.dataset.k, m=+b.dataset.m; const i=st[k].indexOf(m); i>=0?st[k].splice(i,1):st[k].push(m); b.classList.toggle('on'); }));
+    const redraw=()=>{ o.querySelector('#ovList').innerHTML=ovRows(); };
+    o.querySelector('#ovList').addEventListener('click',e=>{ const b=e.target.closest('[data-del]'); if(!b) return; delete st.overrides[b.dataset.del]; redraw(); });
+    o.querySelector('#ovAdd').onclick=()=>{ const k=val('ovMonth'), a=round2(parseAmount(val('ovAmt'))); if(!/^\d{4}-\d{2}$/.test(k)){ toast('Elige el mes','over'); return; } if(!(a>=0)){ toast('Escribe el importe neto de ese mes','over'); return; }
+      st.overrides[k]={ amount:a, note:val('ovNote').trim() }; o.querySelector('#ovAmt').value=''; o.querySelector('#ovNote').value=''; redraw(); };
+    o.querySelector('#fcSave').onclick=()=>{ const base=round2(parseAmount(val('fcBase'))); if(!(base>0)){ toast('Escribe tu nómina normal','over'); return; }
+      S.incomeForecast={ base, half:round2(parseAmount(val('fcHalf')))||0, halfMonths:st.halfMonths.sort((a,b)=>a-b), full:round2(parseAmount(val('fcFull')))||0, fullMonths:st.fullMonths.sort((a,b)=>a-b), overrides:st.overrides };
+      save(); closeModal(); render(); toast('Previsión guardada','ok'); };
+    o.querySelector('#fcDel')?.addEventListener('click',()=>{ if(!confirm('¿Borrar la previsión de ingresos?')) return; delete S.incomeForecast; save(); closeModal(); render(); });
+  });
+}
+
+// keep=true guarda el plan; los meses futuros sin tocar se calculan al vuelo copiando el último plan guardado
+function planFor(ym, keep){
   S.plans = S.plans || {};
   if(S.plans[ym]) return S.plans[ym];
   // Un mes nuevo empieza copiando el plan del anterior
   let prev=null; for(let i=1;i<=12 && !prev;i++) prev=S.plans[addMonths(ym,-i)];
   const p = { income:null, fixed:{}, extras:[], pockets:{}, saving:0 };
-  if(prev){ p.income=prev.income; p.saving=prev.saving||0; p.pockets={...prev.pockets}; for(const [k,v] of Object.entries(prev.fixed||{})) p.fixed[k]={ amount:v.amount, off:false }; }
-  S.plans[ym]=p; return p;
+  if(prev){ if(prev.incomeManual && !S.incomeForecast){ p.income=prev.income; } p.saving=prev.saving||0; p.pockets={...prev.pockets}; for(const [k,v] of Object.entries(prev.fixed||{})) p.fixed[k]={ amount:v.amount, off:false }; }
+  if(keep || ym<=ymOf(todayStr())) S.plans[ym]=p;
+  return p;
 }
 const hasPlan = ym => !!(S.plans && S.plans[ym]);
 const hasPlanTouched = ym => !!(S.plans && S.plans[ym] && S.plans[ym].touched);
-function planIncome(ym){ const p=planFor(ym); if(p.income!=null) return p.income; return round2(S.recurring.filter(r=>r.active && r.type==='ingreso').reduce((a,r)=>a+r.amount,0)); }
+function planIncome(ym){ const p=planFor(ym);
+  if(p.income!=null && (p.incomeManual || !S.incomeForecast)) return p.income;
+  const fc=forecastIncome(ym);
+  if(fc!=null){ const recv = ym<=ymOf(todayStr()) ? receivedIncome(ym) : 0; return recv>0 ? recv : fc; }
+  if(p.income!=null) return p.income;
+  return round2(S.recurring.filter(r=>r.active && r.type==='ingreso').reduce((a,r)=>a+r.amount,0)); }
 const receivedIncome = ym => round2(movsOf(ym).filter(m=>m.type==='ingreso' && m.categoryId==='nomina').reduce((a,m)=>a+m.amount,0));
 function fixedItems(ym){
   const p=planFor(ym);
@@ -611,9 +701,10 @@ function viewPlanMonth(){
     <div style="display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--line);margin-top:14px">${seg(pt.fixed,'#86868b')}${seg(pt.pockets,'var(--accent)')}${seg(pt.saving,'var(--green)')}</div>
     <div class="summary-line" style="margin-top:10px"><span><span class="dot" style="background:#86868b"></span> Fijos <b class="num">${eur(pt.fixed,0)}</b></span><span><span class="dot" style="background:var(--accent)"></span> Pockets <b class="num">${eur(pt.pockets,0)}</b></span><span><span class="dot" style="background:var(--green)"></span> Ahorro <b class="num">${eur(pt.saving,0)}</b></span></div>
   </div>
+  ${ym>=ymOf(todayStr()) ? forecastCard() : ''}
 
   <div class="card section"><h2>1. Ingresos <small>lo que vas a cobrar</small></h2>
-    <div class="item pi"><div class="ico">💼</div><div class="body"><div class="t"><span>Nómina y otros ingresos</span></div><div class="s"><span>${recv?`Recibido del banco: <b class="green num">${eur(recv)}</b>`:'Aún no ha llegado la nómina'}</span></div></div>${moneyInput(pt.inc, `App.planSet('${ym}','income','',this.value)`, 'Ingresos del mes')}</div>
+    <div class="item pi"><div class="ico">💼</div><div class="body"><div class="t"><span>Nómina y otros ingresos</span></div><div class="s"><span>${recv?`Recibido del banco: <b class="green num">${eur(recv)}</b>`:(ym<=ymOf(todayStr())?'Aún no ha llegado la nómina':'Mes futuro')}${forecastIncome(ym)!=null?` · previsto ${eur(forecastIncome(ym),0)}${forecastLabel(ym)?' ('+esc(forecastLabel(ym))+')':''}`:''}${p.incomeManual?' · <a class="link" href="#" onclick="App.planSet(\''+ym+'\',\'income\',\'\',\'\');return false">usar la previsión</a>':''}</span></div></div>${moneyInput(pt.inc, `App.planSet('${ym}','income','',this.value)`, 'Ingresos del mes')}</div>
     ${recv && Math.abs(recv-pt.inc)>0.5?`<button class="btn sm ghost" onclick="App.planSet('${ym}','income','','${recv}')">Usar lo recibido (${eur(recv)})</button>`:''}
   </div>
 
@@ -640,9 +731,9 @@ function viewPlanMonth(){
 }
 
 function planSet(ym, kind, id, value){
-  const p=planFor(ym); const v = value==='' ? null : round2(parseAmount(value));
+  const p=planFor(ym, true); const v = value==='' ? null : round2(parseAmount(value));
   if(value!=='' && !(v>=0)){ toast('Importe no válido','over'); render(); return; }
-  if(kind==='income') p.income=v;
+  if(kind==='income'){ p.income=v; p.incomeManual = v!=null; }
   else if(kind==='saving') p.saving=v||0;
   else if(kind==='pocket'){ if(v==null) delete p.pockets[id]; else p.pockets[id]=v; }
   else if(kind==='fixed'){ p.fixed[id]={ ...(p.fixed[id]||{}), amount: v==null ? (S.recurring.find(r=>r.id===id)?.amount||0) : v }; }
@@ -650,7 +741,7 @@ function planSet(ym, kind, id, value){
   p.touched=true; save(); render();
 }
 function planItemMenu(ym, kind, id){
-  const p=planFor(ym);
+  const p=planFor(ym, true);
   const it=fixedItems(ym).find(i=>i.id===id && i.kind===kind); if(!it) return;
   modal(esc(it.name), `
     <div class="row-btns" style="flex-direction:column">
@@ -675,7 +766,7 @@ function planExtra(ym){
     <button class="btn primary block" id="exSave">Añadir</button>`, o=>{
     setTimeout(()=>o.querySelector('#exName').focus(),60);
     o.querySelector('#exSave').onclick=()=>{ const name=val('exName').trim(), amount=round2(parseAmount(val('exAmt'))); if(!name){ toast('Pon un nombre','over'); return; } if(!(amount>0)){ toast('Escribe un importe','over'); return; }
-      planFor(ym).extras.push({ id:uid(), name, amount, day: parseInt(val('exDay'))||'', categoryId:val('exCat'), accountId:val('exAcc') }); save(); closeModal(); render(); toast('Añadido al plan de '+monthName(ym),'ok'); };
+      planFor(ym, true).extras.push({ id:uid(), name, amount, day: parseInt(val('exDay'))||'', categoryId:val('exCat'), accountId:val('exAcc') }); save(); closeModal(); render(); toast('Añadido al plan de '+monthName(ym),'ok'); };
   });
 }
 
@@ -1523,7 +1614,8 @@ window.App = {
   filter(k,v){ ui.f[k]=v; if(k==='type' && v && ui.f.cat && cat(ui.f.cat).type!==v) ui.f.cat=''; const pos = k==='q' ? document.activeElement.selectionStart : null; render(); if(k==='q'){ const s=document.querySelector('.search'); s.focus(); s.setSelectionRange(pos,pos); } },
   clearFilters(){ ui.f={q:'',cat:'',type:'',method:'',where:''}; render(); },
   openMovement, delMovement, editCategory, editBudget, editRecurring, editPocket, pocketDetail, editAccount, editGoal, goalDetail,
-  exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan, saveSync, bankSync, dailyScript, planSet, planItemMenu, planExtra,
+  exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan, saveSync, bankSync, dailyScript, planSet, planItemMenu, planExtra, editForecast,
+  fcMonths(n){ ui.fcN=n; render(); },
   saveKey(){ const v=(document.getElementById('apiKey')?.value||'').trim(); if(v && !/^sk-ant-/.test(v)){ toast('La clave debería empezar por sk-ant-','over'); return; } S.settings.apiKey=v; save(); render(); toast(v?'Clave guardada':'Clave eliminada','ok'); },
   _state:()=>S, _totals:totals,
 };

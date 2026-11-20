@@ -349,7 +349,7 @@ function runRecurring(){
         if(date<=t){
           const pf = S.plans && S.plans[m] && S.plans[m].fixed && S.plans[m].fixed[r.id];
           if(pf && pf.off){ r.generated.push(m); m=addMonths(m,1); continue; }
-          S.movements.push({id:uid(),type:r.type,amount: pf && pf.amount!=null ? pf.amount : r.amount,categoryId:r.categoryId,date,method:r.method||'Domiciliación',accountId:r.accountId||'',pocketId:r.pocketId||'',note:r.name,recurringId:r.id,sample:!!r.sample});
+          S.movements.push({id:uid(),type:r.type,amount: pf && pf.amount!=null ? pf.amount : (r.pct ? round2(planIncome(m)*r.pct/100) : r.amount),categoryId:r.categoryId,date,method:r.method||'Domiciliación',accountId:r.accountId||'',pocketId:r.pocketId||'',note:r.name,recurringId:r.id,sample:!!r.sample});
           r.generated.push(m); n++;
         }
       }
@@ -641,7 +641,7 @@ function planFor(ym, keep){
   // Un mes nuevo empieza copiando el plan del anterior
   let prev=null; for(let i=1;i<=12 && !prev;i++) prev=S.plans[addMonths(ym,-i)];
   const p = { income:null, fixed:{}, extras:[], pockets:{}, saving:0 };
-  if(prev){ if(prev.incomeManual && !S.incomeForecast){ p.income=prev.income; } p.saving=prev.saving||0; p.pockets={...prev.pockets}; for(const [k,v] of Object.entries(prev.fixed||{})) p.fixed[k]={ amount:v.amount, off:false }; }
+  if(prev){ if(prev.incomeManual && !S.incomeForecast){ p.income=prev.income; } p.saving=prev.saving||0; p.pockets={...prev.pockets}; for(const [k,v] of Object.entries(prev.fixed||{})) if(!S.recurring.find(r=>r.id===k)?.pct) p.fixed[k]={ amount:v.amount, off:false }; }
   if(keep || ym<=currentPlanMonth()) S.plans[ym]=p;
   return p;
 }
@@ -656,7 +656,7 @@ function planIncome(ym){ const p=planFor(ym);
 const receivedIncome = ym => round2(S.movements.filter(m=>m.type==='ingreso' && m.categoryId==='nomina' && m.date && planMonthOf(m.date)===ym).reduce((a,m)=>a+m.amount,0));
 function fixedItems(ym){
   const p=planFor(ym);
-  const rec = S.recurring.filter(r=>r.active && r.type==='gasto').map(r=>({ kind:'fixed', id:r.id, name:r.name, categoryId:r.categoryId, accountId:r.accountId, day:r.day, isSub:r.isSub||r.categoryId==='subs', amount: p.fixed[r.id]?.amount ?? r.amount, off: !!p.fixed[r.id]?.off, paid: p.fixed[r.id]?.paid }));
+  const rec = S.recurring.filter(r=>r.active && r.type==='gasto').map(r=>({ kind:'fixed', id:r.id, name:r.name, categoryId:r.categoryId, accountId:r.accountId, day:r.day, isSub:r.isSub||r.categoryId==='subs', amount: p.fixed[r.id]?.amount ?? (r.pct ? round2(planIncome(ym)*r.pct/100) : r.amount), pct: r.pct||null, off: !!p.fixed[r.id]?.off, paid: p.fixed[r.id]?.paid }));
   const ex = (p.extras||[]).map(e=>({ kind:'extra', id:e.id, name:e.name, categoryId:e.categoryId, accountId:e.accountId, day:e.day||'', amount:e.amount, off:false, paid:e.paid }));
   const items=[...rec, ...ex].sort((a,b)=>(+a.day||32)-(+b.day||32));
   // ¿Ya se ha pagado? Se busca en los movimientos del mes un gasto con importe parecido y el mismo nombre, categoría o cuenta
@@ -731,7 +731,7 @@ function viewPlanMonth(){
   <div class="card section"><h2>2. Gastos fijos y cuotas <small>${eur(pt.paid,0)} pagado de ${eur(pt.fixed,0)}</small></h2>
     <p class="hint" style="margin:-6px 0 4px">Ajusta el importe de este mes o quita lo que no toque. Se marcan como pagados al aparecer en el banco.</p>
     ${pt.items.length?pt.items.map(it=>{ const c=cat(it.categoryId), a=acc(it.accountId);
-      return `<div class="item pi" style="${it.off?'opacity:.45':''}"><div class="ico">${c.icon}</div><div class="body"><div class="t"><span>${esc(it.name)}${it.kind==='extra'?'<span class="tag rec">solo este mes</span>':''}</span></div><div class="s"><span>${it.off?'No toca este mes':it.isPaid?`<span class="green">Pagado</span>${it.paidMov?' · '+shortDate(it.paidMov.date):''}`:`Pendiente${it.day?' · día '+it.day:''}`}${a?' · '+esc(a.name):''}</span></div></div>
+      return `<div class="item pi" style="${it.off?'opacity:.45':''}"><div class="ico">${c.icon}</div><div class="body"><div class="t"><span>${esc(it.name)}${it.kind==='extra'?'<span class="tag rec">solo este mes</span>':''}${it.pct?`<span class="tag rec">${fmtNum(it.pct, it.pct%1?1:0)} % de ingresos</span>`:''}</span></div><div class="s"><span>${it.off?'No toca este mes':it.isPaid?`<span class="green">Pagado</span>${it.paidMov?' · '+shortDate(it.paidMov.date):''}`:`Pendiente${it.day?' · día '+it.day:''}`}${a?' · '+esc(a.name):''}</span></div></div>
         ${it.off?'':moneyInput(it.amount, `App.planSet('${ym}','${it.kind}','${it.id}',this.value)`, it.name)}
         <button class="btn sm ghost" style="padding:6px 8px" onclick="App.planItemMenu('${ym}','${it.kind}','${it.id}')" aria-label="Opciones">⋯</button></div>`; }).join('')
       :'<div class="empty">Añade tus cuotas, recibos y suscripciones. Se guardan para todos los meses.</div>'}
@@ -756,7 +756,7 @@ function planSet(ym, kind, id, value){
   if(kind==='income'){ p.income=v; p.incomeManual = v!=null; }
   else if(kind==='saving') p.saving=v||0;
   else if(kind==='pocket'){ if(v==null) delete p.pockets[id]; else p.pockets[id]=v; }
-  else if(kind==='fixed'){ p.fixed[id]={ ...(p.fixed[id]||{}), amount: v==null ? (S.recurring.find(r=>r.id===id)?.amount||0) : v }; }
+  else if(kind==='fixed'){ if(v==null){ if(p.fixed[id]) delete p.fixed[id].amount; } else p.fixed[id]={ ...(p.fixed[id]||{}), amount: v }; }
   else if(kind==='extra'){ const e=p.extras.find(x=>x.id===id); if(e) e.amount=v||0; }
   p.touched=true; save(); render();
 }
@@ -823,7 +823,7 @@ function viewSettings(){
   <div class="grid g2">
     <div class="card settings-list"><h2>Gastos fijos, cuotas y suscripciones <button class="btn sm" onclick="App.editRecurring()">+ Nuevo</button></h2>
       <p class="hint" style="margin:-4px 0 6px">${S.settings.syncUrl&&S.settings.syncPass?'Son la base del plan de cada mes (pestaña Plan). Los pagos reales llegan del banco.':'Se apuntan solos cada mes el día indicado y aparecen en el plan de cada mes.'}</p>
-      ${recs.length?recs.map(r=>{ const c=cat(r.categoryId), a=acc(r.accountId); return `<div class="item" onclick="App.editRecurring('${r.id}')"><div class="ico" style="background:${c.color}22">${c.icon}</div><div class="body"><div class="t"><span>${esc(r.name)}${r.active?'':' <span class="tag warn">pausado</span>'}</span><span class="num ${r.type==='ingreso'?'green':''}">${r.type==='ingreso'?'+':'-'}${eur(r.amount)}</span></div><div class="s"><span>Día ${r.day} de cada mes${a?' · '+esc(a.name):''}</span></div></div></div>`; }).join(''):'<div class="empty">Nómina, coche, gimnasio, Netflix… añádelos y se apuntarán solos.</div>'}
+      ${recs.length?recs.map(r=>{ const c=cat(r.categoryId), a=acc(r.accountId); return `<div class="item" onclick="App.editRecurring('${r.id}')"><div class="ico" style="background:${c.color}22">${c.icon}</div><div class="body"><div class="t"><span>${esc(r.name)}${r.active?'':' <span class="tag warn">pausado</span>'}</span><span class="num ${r.type==='ingreso'?'green':''}">${r.pct?fmtNum(r.pct, r.pct%1?1:0)+' % ingresos':(r.type==='ingreso'?'+':'-')+eur(r.amount)}</span></div><div class="s"><span>Día ${r.day} de cada mes${a?' · '+esc(a.name):''}</span></div></div></div>`; }).join(''):'<div class="empty">Nómina, coche, gimnasio, Netflix… añádelos y se apuntarán solos.</div>'}
     </div>
     <div class="card settings-list"><h2>Categorías de gasto <button class="btn sm" onclick="App.editCategory(null,'gasto')">+ Nueva</button></h2>${catList('gasto')}</div>
     <div class="card settings-list"><h2>Categorías de ingreso <button class="btn sm" onclick="App.editCategory(null,'ingreso')">+ Nueva</button></h2>${catList('ingreso')}</div>
@@ -994,7 +994,9 @@ function editRecurring(id, preset={}){
   const body=`
     <div class="seg" id="rType"><button type="button" data-t="gasto" class="g ${st.type==='gasto'?'on':''}">Gasto</button><button type="button" data-t="ingreso" class="i ${st.type==='ingreso'?'on':''}">Ingreso</button></div>
     <div class="field"><label>Nombre</label><input class="input" id="rName" value="${esc(st.name)}" placeholder="Ej. Netflix, Nómina, Gimnasio" maxlength="40"></div>
-    <div class="f2"><div class="field"><label>Importe</label><input class="input" id="rAmt" inputmode="decimal" placeholder="0,00 €" value="${st.amount!==''?fmtNum(st.amount).replace(/\./g,''):''}"></div>
+    <div class="seg" id="rMode" style="${st.type==='gasto'?'':'display:none'}"><button type="button" data-m="fix" class="${st.pct?'':'on'}">Importe fijo</button><button type="button" data-m="pct" class="${st.pct?'on':''}">% de los ingresos</button></div>
+    <div class="f2"><div class="field" id="rAmtF" style="${st.pct?'display:none':''}"><label>Importe</label><input class="input" id="rAmt" inputmode="decimal" placeholder="0,00 €" value="${st.amount!==''?fmtNum(st.amount).replace(/\./g,''):''}"></div>
+    <div class="field" id="rPctF" style="${st.pct?'':'display:none'}"><label>Porcentaje</label><input class="input" id="rPct" inputmode="decimal" placeholder="Ej. 10" value="${st.pct?fmtNum(st.pct, st.pct%1?1:0):''}"></div>
     <div class="field"><label>Día del mes</label><input class="input" id="rDay" type="number" min="1" max="31" value="${st.day}"></div></div>
     <div class="f2"><div class="field"><label>Categoría</label><select class="select" id="rCat"></select></div>
     <div class="field"><label>Cuenta</label><select class="select" id="rAcc">${opts(S.accounts.map(a=>[a.id,`${a.icon} ${a.name}`]), st.accountId, 'Sin especificar')}</select></div></div>
@@ -1008,12 +1010,17 @@ function editRecurring(id, preset={}){
     const draw=()=>{ o.querySelector('#rCat').innerHTML=opts(S.categories.filter(c=>c.type===st.type).map(c=>[c.id,`${c.icon} ${c.name}`]), st.categoryId); st.categoryId=o.querySelector('#rCat').value;
       o.querySelector('#rSubL').style.display=st.type==='gasto'?'':'none'; o.querySelector('#rPocketF').style.display=st.type==='gasto'&&S.pockets.length?'':'none'; };
     draw();
+    let mode = st.pct ? 'pct' : 'fix';
+    o.querySelector('#rMode').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; mode=b.dataset.m; o.querySelectorAll('#rMode button').forEach(x=>x.classList.toggle('on',x===b)); o.querySelector('#rAmtF').style.display=mode==='pct'?'none':''; o.querySelector('#rPctF').style.display=mode==='pct'?'':'none'; };
     o.querySelector('#rCat').onchange=e=>{ st.categoryId=e.target.value; if(st.categoryId==='subs') o.querySelector('#rSub').checked=true; };
-    o.querySelector('#rType').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; st.type=b.dataset.t; o.querySelectorAll('#rType button').forEach(x=>x.classList.toggle('on',x===b)); if(st.type==='ingreso') o.querySelector('#rMethod').value='Transferencia'; draw(); };
+    o.querySelector('#rType').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; st.type=b.dataset.t; o.querySelectorAll('#rType button').forEach(x=>x.classList.toggle('on',x===b)); o.querySelector('#rMode').style.display=st.type==='gasto'?'':'none'; if(st.type!=='gasto'){ mode='fix'; o.querySelector('#rAmtF').style.display=''; o.querySelector('#rPctF').style.display='none'; } if(st.type==='ingreso') o.querySelector('#rMethod').value='Transferencia'; draw(); };
     o.querySelector('#rSave').onclick=()=>{
-      const name=val('rName').trim(), amount=round2(parseAmount(val('rAmt'))), day=Math.min(Math.max(parseInt(val('rDay'))||1,1),31);
-      if(!name){ toast('Pon un nombre','over'); return; } if(!(amount>0)){ toast('Escribe un importe válido','over'); return; }
-      const data={name,type:st.type,amount,day,categoryId:val('rCat'),accountId:val('rAcc')||'',method:val('rMethod'),pocketId:st.type==='gasto'?(val('rPocket')||''):'',isSub:st.type==='gasto'&&o.querySelector('#rSub').checked};
+      const usePct = mode==='pct' && st.type==='gasto';
+      const pct = usePct ? round2(parseAmount(val('rPct'))) : null;
+      if(usePct && !(pct>0 && pct<=100)){ toast('Escribe un porcentaje entre 1 y 100','over'); return; }
+      const name=val('rName').trim(), amount= usePct ? round2(planIncome(currentPlanMonth())*pct/100) : round2(parseAmount(val('rAmt'))), day=Math.min(Math.max(parseInt(val('rDay'))||1,1),31);
+      if(!name){ toast('Pon un nombre','over'); return; } if(!usePct && !(amount>0)){ toast('Escribe un importe válido','over'); return; }
+      const data={name,type:st.type,amount,pct,day,categoryId:val('rCat'),accountId:val('rAcc')||'',method:val('rMethod'),pocketId:st.type==='gasto'?(val('rPocket')||''):'',isSub:st.type==='gasto'&&o.querySelector('#rSub').checked};
       if(r){ Object.assign(r,data,{active:o.querySelector('#rActive').checked}); r.sample=false; if(r.active){ const cur=ymOf(todayStr()); if(r.start>cur) r.start=cur; } }
       else S.recurring.push({id:uid(),...data,active:true,start:ymOf(todayStr()),generated:[],sample:false});
       const n=runRecurring(); save(); closeModal(); render(); toast(n?`Guardado · ${n} movimiento${n>1?'s':''} añadido${n>1?'s':''}`:'Guardado','ok'); };

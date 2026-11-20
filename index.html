@@ -397,7 +397,7 @@ function renderNav(){
   $('#bottomnav').innerHTML = btns;
   $('#sidebar').innerHTML = `<div class="brand"><div class="logo">€</div>Mis Finanzas</div>${btns}<button class="btn primary addbtn" onclick="App.openMovement()">Añadir movimiento</button><button class="btn addbtn" style="margin-top:8px" onclick="App.scan()">${ic('scan')} Escanear ticket</button>`;
 }
-function monthSel(){ return `<div class="monthsel"><button onclick="App.month(-1)" aria-label="Mes anterior">‹</button><span>${monthLabel(ui.month)}</span><button onclick="App.month(1)" aria-label="Mes siguiente">›</button></div>`; }
+function monthSel(){ const lbl = (ui.tab==='plan' && payCutoff()) ? 'Nómina '+monthLabel(payMonthOf(ui.month)).replace(/ \d{4}$/,'') : monthLabel(ui.month); return `<div class="monthsel"><button onclick="App.month(-1)" aria-label="Mes anterior">‹</button><span>${lbl}</span><button onclick="App.month(1)" aria-label="Mes siguiente">›</button></div>`; }
 function topbar(title, withMonth=true){ return `<div class="topbar"><h1>${title}</h1>${withMonth?monthSel():''}</div>`; }
 function demoBanner(){ return S.settings.demo ? `<div class="demo-banner"><span><span class="lbl">Ejemplo</span>Estás viendo datos de ejemplo.</span><button class="btn sm" onclick="App.clearSample()">Borrar ejemplo y empezar de cero</button></div>` : ''; }
 
@@ -576,7 +576,8 @@ function savingsNow(){
   return { amount: round2(S.goals.reduce((s,g)=>s+(+g.saved||0),0)), src:'lo guardado en tus objetivos' };
 }
 function forecastRows(n){
-  const start=currentPlanMonth(); const rows=[]; let acc=savingsNow().amount;
+  // Empieza por la próxima nómina (la que estás gastando ya está repartida)
+  const c=payCutoff(), start = c && new Date().getDate()<c ? addMonths(currentPlanMonth(),1) : currentPlanMonth(); const rows=[]; let acc=savingsNow().amount;
   for(let i=0;i<n;i++){
     const ym=addMonths(start,i), pt=planTotals(ym);
     const extra=Math.max(pt.free,0);
@@ -594,11 +595,11 @@ function forecastCard(){
   const W=360,H=120, step=W/rows.length;
   const pts=[[0,start.amount],...rows.map((r,i)=>[(i+1)*step,r.acc])];
   const y=v=>H-14-(v/max)*(H-34);
-  const chart=`<div class="chart" style="margin:4px 0 6px"><svg viewBox="0 0 ${W} ${H}"><polyline points="${pts.map(([x,v])=>`${x.toFixed(1)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${pts.map(([x,v],i)=>`<circle cx="${x.toFixed(1)}" cy="${y(v).toFixed(1)}" r="${i?3.5:3}" fill="#fff" stroke="var(--green)" stroke-width="2"><title>${eur(v)}</title></circle>`).join('')}<text x="${W-2}" y="${Math.max(y(rows[rows.length-1].acc)-8,10)}" text-anchor="end" font-size="11" font-weight="600" fill="var(--green)">${eurK(rows[rows.length-1].acc)}</text>${rows.map((r,i)=>`<text x="${((i+1)*step).toFixed(1)}" y="${H-1}" text-anchor="middle" font-size="10" fill="var(--muted)">${MESES_C[+r.ym.slice(5)-1]}</text>`).join('')}</svg></div>`;
+  const chart=`<div class="chart" style="margin:4px 0 6px"><svg viewBox="0 0 ${W} ${H}"><polyline points="${pts.map(([x,v])=>`${x.toFixed(1)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${pts.map(([x,v],i)=>`<circle cx="${x.toFixed(1)}" cy="${y(v).toFixed(1)}" r="${i?3.5:3}" fill="#fff" stroke="var(--green)" stroke-width="2"><title>${eur(v)}</title></circle>`).join('')}<text x="${W-2}" y="${Math.max(y(rows[rows.length-1].acc)-8,10)}" text-anchor="end" font-size="11" font-weight="600" fill="var(--green)">${eurK(rows[rows.length-1].acc)}</text>${rows.map((r,i)=>`<text x="${((i+1)*step).toFixed(1)}" y="${H-1}" text-anchor="middle" font-size="10" fill="var(--muted)">${MESES_C[+payMonthOf(r.ym).slice(5)-1]}</text>`).join('')}</svg></div>`;
   return `<div class="card section"><h2>Previsión <small><span class="seg" style="display:inline-flex;margin:0;padding:2px">${[3,6,12].map(k=>`<button class="${k===n?'on':''}" style="padding:4px 10px;font-size:12px" onclick="App.fcMonths(${k})">${k} m</button>`).join('')}</span></small></h2>
-    <div class="stat"><div class="lbl">Ahorro previsto en ${monthLabel(rows[rows.length-1].ym)}</div><div class="val num green">${eur(rows[rows.length-1].acc,0)}</div><div class="sub">Partes de ${eur(start.amount,0)} (${start.src}) y sumas el ahorro y lo que quede sin asignar cada mes.</div></div>
+    <div class="stat"><div class="lbl">Ahorro previsto tras la nómina de ${monthLabel(payMonthOf(rows[rows.length-1].ym))}</div><div class="val num green">${eur(rows[rows.length-1].acc,0)}</div><div class="sub">Partes de ${eur(start.amount,0)} (${start.src}) y sumas el ahorro y lo que quede sin asignar cada mes.</div></div>
     ${chart}
-    ${rows.map(r=>`<div class="item pi" style="cursor:pointer" onclick="App.setMonth('${r.ym}');window.scrollTo({top:0,behavior:'smooth'})"><div class="body"><div class="t"><span style="text-transform:capitalize">${monthLabel(r.ym)}${r.label?`<span class="tag rec">${esc(r.label)}</span>`:''}</span><span class="num green">+${eur(r.saving+Math.max(r.free,0),0)}</span></div><div class="s"><span>Entra <b class="num">${eur(r.inc,0)}</b> · fijos ${eur(r.fixed,0)} · pockets ${eur(r.pockets,0)}${r.free<0?` · <span class="red">faltan ${eur(-r.free,0)}</span>`:''}</span><span class="num">${eur(r.acc,0)}</span></div></div></div>`).join('')}
+    ${rows.map(r=>`<div class="item pi" style="cursor:pointer" onclick="App.setMonth('${r.ym}');window.scrollTo({top:0,behavior:'smooth'})"><div class="body"><div class="t"><span style="text-transform:capitalize">${monthLabel(payMonthOf(r.ym))}${r.label?`<span class="tag rec">${esc(r.label)}</span>`:''}</span><span class="num green">+${eur(r.saving+Math.max(r.free,0),0)}</span></div><div class="s"><span>Entra <b class="num">${eur(r.inc,0)}</b> · fijos ${eur(r.fixed,0)} · pockets ${eur(r.pockets,0)}${r.free<0?` · <span class="red">faltan ${eur(-r.free,0)}</span>`:''}</span><span class="num">${eur(r.acc,0)}</span></div></div></div>`).join('')}
     <div class="row-btns" style="margin-top:12px"><button class="btn sm" onclick="App.editForecast()">Editar ingresos previstos</button></div>
     <p class="hint">Toca un mes para ver y ajustar su plan. Los meses futuros copian el reparto del mes anterior.</p></div>`;
 }
@@ -711,7 +712,7 @@ function viewPlanMonth(){
   return `
   ${S.settings.payDay==null?`<div class="card" style="margin-bottom:16px"><h2>¿Cuándo cobras la nómina?</h2><p class="hint" style="margin-top:0">Si cobras a final de mes, el plan de cada mes se paga con la nómina del mes anterior.</p><div class="row-btns" style="margin-top:12px"><button class="btn primary" onclick="App.setPayDay('last')">A final de mes</button><button class="btn" onclick="App.setPayDay(1)">A principios de mes</button></div></div>`:''}
   <div class="seg" style="margin-bottom:8px">${chips.map(m=>`<button class="${m===ym?'on':''}" onclick="App.setMonth('${m}')">${payCutoff()?'Nómina '+payDateLabel(m):monthName(m)[0].toUpperCase()+monthName(m).slice(1)}${hasPlanTouched(m)?' ✓':''}</button>`).join('')}</div>
-  <p class="hint" style="margin:0 4px 14px">${payCutoff()?`Plan de <b>${monthName(ym)}</b>, con la nómina del <b>${payDateLabel(ym)}</b>`:`Plan de <b>${monthLabel(ym)}</b>`}${ym>cur?' · lo que cambies aquí se queda guardado':''} · <a class="link" href="#" onclick="App.editPayDay();return false">día de cobro</a></p>
+  <p class="hint" style="margin:0 4px 14px">${payCutoff()?`Presupuesto de la <b>nómina de ${monthName(payMonthOf(ym))}</b> (${payDateLabel(ym)}), para tus gastos de ${monthName(ym)}`:`Plan de <b>${monthLabel(ym)}</b>`}${ym>cur?' · lo que cambies aquí se queda guardado':''} · <a class="link" href="#" onclick="App.editPayDay();return false">día de cobro</a></p>
   ${showSum ? monthSummary(prevYm) : ''}
   <div class="card stat hero${showSum?' section':''}">
     <div class="lbl">Sin asignar este mes</div>

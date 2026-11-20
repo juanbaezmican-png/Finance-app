@@ -465,7 +465,7 @@ function viewHome(){
     <div class="card stat"><div class="lbl">Gastos</div><div class="val num">${eur(t.exp)}</div><div class="sub">${monthName(prevM)}: ${eur(p.exp)}</div></div>
   </div>
   <div class="compare">${cmp}</div>
-  ${ui.month===ymOf(todayStr()) && new Date().getDate()<=10 && !hasPlanTouched(ui.month) ? `<div class="compare" style="cursor:pointer" onclick="App.go('plan')"><span class="badge" style="color:var(--accent)">${ic('target')}</span><span><b>Nuevo mes:</b> revisa tus gastos fijos y reparte la nómina en el plan de ${monthName(ui.month)} ›</span></div>` : ''}
+  ${ui.month===ymOf(todayStr()) && justPaid() && !hasPlanTouched(currentPlanMonth()) ? `<div class="compare" style="cursor:pointer" onclick="App.go('plan')"><span class="badge" style="color:var(--accent)">${ic('target')}</span><span><b>${payCutoff()?'¡Nómina a la vista!':'Nuevo mes:'}</b> revisa tus gastos fijos y reparte la nómina en el plan de ${monthName(currentPlanMonth())} ›</span></div>` : ''}
   ${alerts.length?`<div class="alerts">${alerts.map(a=>`<div class="alert ${a.l}"><span class="mk"></span><span>${a.text}</span></div>`).join('')}</div>`:''}
   <div class="grid g2 section">
     <div class="card"><h2>Gastos por categoría <small>${monthLabel(ui.month)}</small></h2>${donut(items, t.exp)}</div>
@@ -536,6 +536,20 @@ function viewPockets(){
 }
 
 /* ============ Plan del mes (reparto al cobrar) ============ */
+/* ============ Día de cobro: a qué plan pertenece cada fecha ============ */
+// Si cobras a final de mes, la nómina (y los traspasos a pockets de ese día) son para el mes siguiente
+function payCutoff(){ const d=S.settings.payDay; if(d==null) return 0; if(d==='last') return 25; return d>=15 ? Math.max(15, d-5) : 0; }
+function planMonthOf(date){ const c=payCutoff(); const ym=date.slice(0,7); return c && +date.slice(8,10)>=c ? addMonths(ym,1) : ym; }
+const payMonthOf = planYm => payCutoff() ? addMonths(planYm,-1) : planYm;
+function currentPlanMonth(){ return planMonthOf(todayStr()); }
+function payDateLabel(planYm){
+  const pm=payMonthOf(planYm), d=S.settings.payDay;
+  if(d==null) return monthName(planYm);
+  const day = d==='last' ? daysInMonth(pm) : Math.min(d, daysInMonth(pm));
+  return `${day} ${MESES_C[+pm.slice(5)-1]}`;
+}
+function justPaid(){ const c=payCutoff(), day=new Date().getDate(); return c ? (day>=c || day<=5) : day<=10; }
+
 /* ============ Previsión de ingresos y ahorro ============ */
 // S.incomeForecast = { base, half, halfMonths:[4,9], full, fullMonths:[7,12], overrides:{ 'YYYY-MM': { amount, note } } }
 const MESES_CORTOS = MESES.map(m=>m[0].toUpperCase()+m.slice(1,3));
@@ -562,12 +576,12 @@ function savingsNow(){
   return { amount: round2(S.goals.reduce((s,g)=>s+(+g.saved||0),0)), src:'lo guardado en tus objetivos' };
 }
 function forecastRows(n){
-  const start=ymOf(todayStr()); const rows=[]; let acc=savingsNow().amount;
+  const start=currentPlanMonth(); const rows=[]; let acc=savingsNow().amount;
   for(let i=0;i<n;i++){
     const ym=addMonths(start,i), pt=planTotals(ym);
     const extra=Math.max(pt.free,0);
     acc=round2(acc+pt.saving+extra);
-    rows.push({ ym, inc:pt.inc, fixed:pt.fixed, pockets:pt.pockets, saving:pt.saving, free:pt.free, acc, label:forecastLabel(ym) });
+    rows.push({ ym, inc:pt.inc, fixed:pt.fixed, pockets:pt.pockets, saving:pt.saving, free:pt.free, acc, label:forecastLabel(payMonthOf(ym)) });
   }
   return rows;
 }
@@ -595,13 +609,13 @@ function editForecast(){
   const monthChips=(key)=>`<div class="chips" style="grid-template-columns:repeat(6,1fr)" data-k="${key}">${MESES_CORTOS.map((m,i)=>`<button type="button" class="chip ${st[key].includes(i+1)?'on':''}" data-m="${i+1}" style="padding:8px 2px">${m}</button>`).join('')}</div>`;
   const ovRows=()=>Object.keys(st.overrides).sort().map(k=>`<div class="item"><div class="body"><div class="t"><span style="text-transform:capitalize">${monthLabel(k)}</span><span class="num">${eur(st.overrides[k].amount)}</span></div><div class="s"><span>${esc(st.overrides[k].note||'')}</span></div></div><button type="button" class="btn sm ghost" data-del="${k}">Quitar</button></div>`).join('') || '<p class="hint">Ninguno. Añade aquí los meses con bonus, atrasos o cifras distintas.</p>';
   modal('Ingresos previstos', `
-    <p class="hint" style="margin-top:0">Cantidades <b>netas</b> (lo que te llega al banco). Se guardan solo en tu app y en tu servidor.</p>
+    <p class="hint" style="margin-top:0">Cantidades <b>netas</b> (lo que te llega al banco), por el mes en que las cobras. Se guardan solo en tu app y en tu servidor.</p>
     <div class="field" style="margin-top:12px"><label>Nómina normal al mes</label><input class="input" id="fcBase" inputmode="decimal" placeholder="Ej. 1.750 €" value="${money(f.base)}"></div>
     <div class="field"><label>Media paga extra: importe extra</label><input class="input" id="fcHalf" inputmode="decimal" placeholder="Ej. 970 €" value="${money(f.half)}"></div>
     <div class="field"><label>¿En qué meses?</label>${monthChips('halfMonths')}</div>
     <div class="field"><label>Paga extra completa: importe extra</label><input class="input" id="fcFull" inputmode="decimal" placeholder="Ej. 1.940 €" value="${money(f.full)}"></div>
     <div class="field"><label>¿En qué meses?</label>${monthChips('fullMonths')}</div>
-    <div class="card" style="margin:6px 0 14px"><b>Meses especiales</b> <span class="hint">(bonus, atrasos…: sustituyen la cifra de ese mes)</span><div id="ovList">${ovRows()}</div>
+    <div class="card" style="margin:6px 0 14px"><b>Meses especiales</b> <span class="hint">(bonus, atrasos…: elige el mes en que lo cobras; sustituye la cifra de ese mes)</span><div id="ovList">${ovRows()}</div>
       <div class="f2" style="margin-top:10px"><input class="input" type="month" id="ovMonth" aria-label="Mes"><input class="input" id="ovAmt" inputmode="decimal" placeholder="Total neto €" aria-label="Importe"></div>
       <input class="input" id="ovNote" placeholder="Nota, p. ej. Bonus + atraso" maxlength="40" style="margin-top:8px">
       <button type="button" class="btn sm" id="ovAdd" style="margin-top:8px">+ Añadir mes especial</button></div>
@@ -627,18 +641,18 @@ function planFor(ym, keep){
   let prev=null; for(let i=1;i<=12 && !prev;i++) prev=S.plans[addMonths(ym,-i)];
   const p = { income:null, fixed:{}, extras:[], pockets:{}, saving:0 };
   if(prev){ if(prev.incomeManual && !S.incomeForecast){ p.income=prev.income; } p.saving=prev.saving||0; p.pockets={...prev.pockets}; for(const [k,v] of Object.entries(prev.fixed||{})) p.fixed[k]={ amount:v.amount, off:false }; }
-  if(keep || ym<=ymOf(todayStr())) S.plans[ym]=p;
+  if(keep || ym<=currentPlanMonth()) S.plans[ym]=p;
   return p;
 }
 const hasPlan = ym => !!(S.plans && S.plans[ym]);
 const hasPlanTouched = ym => !!(S.plans && S.plans[ym] && S.plans[ym].touched);
 function planIncome(ym){ const p=planFor(ym);
   if(p.income!=null && (p.incomeManual || !S.incomeForecast)) return p.income;
-  const fc=forecastIncome(ym);
-  if(fc!=null){ const recv = ym<=ymOf(todayStr()) ? receivedIncome(ym) : 0; return recv>0 ? recv : fc; }
+  const fc=forecastIncome(payMonthOf(ym));
+  if(fc!=null){ const recv=receivedIncome(ym); return recv>0 ? recv : fc; }
   if(p.income!=null) return p.income;
   return round2(S.recurring.filter(r=>r.active && r.type==='ingreso').reduce((a,r)=>a+r.amount,0)); }
-const receivedIncome = ym => round2(movsOf(ym).filter(m=>m.type==='ingreso' && m.categoryId==='nomina').reduce((a,m)=>a+m.amount,0));
+const receivedIncome = ym => round2(S.movements.filter(m=>m.type==='ingreso' && m.categoryId==='nomina' && m.date && planMonthOf(m.date)===ym).reduce((a,m)=>a+m.amount,0));
 function fixedItems(ym){
   const p=planFor(ym);
   const rec = S.recurring.filter(r=>r.active && r.type==='gasto').map(r=>({ kind:'fixed', id:r.id, name:r.name, categoryId:r.categoryId, accountId:r.accountId, day:r.day, isSub:r.isSub||r.categoryId==='subs', amount: p.fixed[r.id]?.amount ?? r.amount, off: !!p.fixed[r.id]?.off, paid: p.fixed[r.id]?.paid }));
@@ -692,19 +706,24 @@ function viewPlanMonth(){
   const prevYm=addMonths(ym,-1);
   const seg=(v,c)=>pt.inc>0&&v>0?`<i style="display:block;height:100%;width:${Math.min(v/pt.inc*100,100)}%;background:${c}"></i>`:'';
   const pending=pt.items.filter(i=>!i.off && !i.isPaid);
+  const cur=currentPlanMonth(), showSum = ym===cur && justPaid() && !!totals(prevYm).exp;
+  const chips=[0,1,2].map(i=>addMonths(cur,i));
   return `
-  ${(new Date().getDate()<=10 && ym===ymOf(todayStr())) ? monthSummary(prevYm) : ''}
-  <div class="card stat hero${(new Date().getDate()<=10 && ym===ymOf(todayStr()) && totals(prevYm).exp)?' section':''}">
+  ${S.settings.payDay==null?`<div class="card" style="margin-bottom:16px"><h2>¿Cuándo cobras la nómina?</h2><p class="hint" style="margin-top:0">Si cobras a final de mes, el plan de cada mes se paga con la nómina del mes anterior.</p><div class="row-btns" style="margin-top:12px"><button class="btn primary" onclick="App.setPayDay('last')">A final de mes</button><button class="btn" onclick="App.setPayDay(1)">A principios de mes</button></div></div>`:''}
+  <div class="seg" style="margin-bottom:8px">${chips.map(m=>`<button class="${m===ym?'on':''}" onclick="App.setMonth('${m}')">${payCutoff()?'Nómina '+payDateLabel(m):monthName(m)[0].toUpperCase()+monthName(m).slice(1)}${hasPlanTouched(m)?' ✓':''}</button>`).join('')}</div>
+  <p class="hint" style="margin:0 4px 14px">${payCutoff()?`Plan de <b>${monthName(ym)}</b>, con la nómina del <b>${payDateLabel(ym)}</b>`:`Plan de <b>${monthLabel(ym)}</b>`}${ym>cur?' · lo que cambies aquí se queda guardado':''} · <a class="link" href="#" onclick="App.editPayDay();return false">día de cobro</a></p>
+  ${showSum ? monthSummary(prevYm) : ''}
+  <div class="card stat hero${showSum?' section':''}">
     <div class="lbl">Sin asignar este mes</div>
     <div class="val num ${pt.free<0?'red':''}">${eur(pt.free)}</div>
     <div class="sub">${pt.free<0?'Has repartido más de lo que entra: ajusta los pockets o el ahorro.':pt.free>0?'Aún te queda dinero por repartir.':'Todo repartido. ¡Perfecto!'}</div>
     <div style="display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--line);margin-top:14px">${seg(pt.fixed,'#86868b')}${seg(pt.pockets,'var(--accent)')}${seg(pt.saving,'var(--green)')}</div>
     <div class="summary-line" style="margin-top:10px"><span><span class="dot" style="background:#86868b"></span> Fijos <b class="num">${eur(pt.fixed,0)}</b></span><span><span class="dot" style="background:var(--accent)"></span> Pockets <b class="num">${eur(pt.pockets,0)}</b></span><span><span class="dot" style="background:var(--green)"></span> Ahorro <b class="num">${eur(pt.saving,0)}</b></span></div>
   </div>
-  ${ym>=ymOf(todayStr()) ? forecastCard() : ''}
+  ${ym>=cur ? forecastCard() : ''}
 
   <div class="card section"><h2>1. Ingresos <small>lo que vas a cobrar</small></h2>
-    <div class="item pi"><div class="ico">💼</div><div class="body"><div class="t"><span>Nómina y otros ingresos</span></div><div class="s"><span>${recv?`Recibido del banco: <b class="green num">${eur(recv)}</b>`:(ym<=ymOf(todayStr())?'Aún no ha llegado la nómina':'Mes futuro')}${forecastIncome(ym)!=null?` · previsto ${eur(forecastIncome(ym),0)}${forecastLabel(ym)?' ('+esc(forecastLabel(ym))+')':''}`:''}${p.incomeManual?' · <a class="link" href="#" onclick="App.planSet(\''+ym+'\',\'income\',\'\',\'\');return false">usar la previsión</a>':''}</span></div></div>${moneyInput(pt.inc, `App.planSet('${ym}','income','',this.value)`, 'Ingresos del mes')}</div>
+    <div class="item pi"><div class="ico">💼</div><div class="body"><div class="t"><span>Nómina y otros ingresos</span></div><div class="s"><span>${recv?`Recibido del banco: <b class="green num">${eur(recv)}</b>`:(payCutoff()?`Llega el ${payDateLabel(ym)}`:(ym<=ymOf(todayStr())?'Aún no ha llegado la nómina':'Mes futuro'))}${forecastIncome(payMonthOf(ym))!=null?` · previsto ${eur(forecastIncome(payMonthOf(ym)),0)}${forecastLabel(payMonthOf(ym))?' ('+esc(forecastLabel(payMonthOf(ym)))+')':''}`:''}${p.incomeManual?' · <a class="link" href="#" onclick="App.planSet(\''+ym+'\',\'income\',\'\',\'\');return false">usar la previsión</a>':''}</span></div></div>${moneyInput(pt.inc, `App.planSet('${ym}','income','',this.value)`, 'Ingresos del mes')}</div>
     ${recv && Math.abs(recv-pt.inc)>0.5?`<button class="btn sm ghost" onclick="App.planSet('${ym}','income','','${recv}')">Usar lo recibido (${eur(recv)})</button>`:''}
   </div>
 
@@ -1510,9 +1529,9 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     const txs = (data.transactions||[]).filter(t=>t.date && t.date>=from && t.amount>0);
     const internal = markInternal(data.transactions||[]);
     // Reparto del mes: lo que entra (neto) en cada pocket por traspasos, y lo que mandas a Trade Republic
-    const ba={}, bs={}, fromYm=from.slice(0,7);
+    const ba={}, bs={}, fromYm=planMonthOf(from);
     for(const t of data.transactions||[]){
-      if(!internal.has(t.id) || !t.date) continue; const ym=t.date.slice(0,7); if(ym<fromYm) continue;
+      if(!internal.has(t.id) || !t.date) continue; const ym=planMonthOf(t.date); if(ym<fromYm) continue;
       const pk=S.pockets.find(p=>p.bankUid && p.bankUid===t.account_uid);
       if(pk){ ba[ym]=ba[ym]||{}; ba[ym][pk.id]=round2((ba[ym][pk.id]||0)+(t.type==='ingreso'?t.amount:-t.amount)); }
       const toTR = /trade republic/.test(norm(t.counterparty+' '+t.description)) && !/trade/.test(norm(t.aspsp));
@@ -1608,7 +1627,9 @@ function makeIcon(){
 
 /* ============ API pública ============ */
 window.App = {
-  go(t){ ui.tab=t; render(); window.scrollTo({top:0}); },
+  go(t){ if(t==='plan' && ui.tab!=='plan' && ui.month===ymOf(todayStr())) ui.month=currentPlanMonth(); if(t!=='plan' && ui.tab==='plan' && ui.month>ymOf(todayStr())) ui.month=ymOf(todayStr()); ui.tab=t; render(); window.scrollTo({top:0}); },
+  setPayDay(d){ S.settings.payDay=d; save(); if(ui.tab==='plan') ui.month=currentPlanMonth(); closeModal(); render(); bankSync({quiet:true}); toast('Día de cobro guardado','ok'); },
+  editPayDay(){ const d=S.settings.payDay; modal('¿Cuándo cobras?', `<div class="field"><label>Día de cobro de la nómina</label><select class="select" id="pdSel"><option value="last" ${d==='last'?'selected':''}>Último día del mes</option>${[25,26,27,28,29,30].map(n=>`<option value="${n}" ${d===n?'selected':''}>Día ${n}</option>`).join('')}${[1,2,3,4,5].map(n=>`<option value="${n}" ${d===n?'selected':''}>Día ${n} (principios de mes)</option>`).join('')}</select></div><p class="hint">Si cobras a final de mes, la nómina y los traspasos a pockets de esos días cuentan para el plan del mes siguiente.</p><button class="btn primary block" style="margin-top:12px" onclick="const v=document.getElementById('pdSel').value; App.setPayDay(v==='last'?'last':+v)">Guardar</button>`); },
   month(d){ ui.month=addMonths(ui.month,d); render(); },
   setMonth(m){ ui.month=m; render(); },
   filter(k,v){ ui.f[k]=v; if(k==='type' && v && ui.f.cat && cat(ui.f.cat).type!==v) ui.f.cat=''; const pos = k==='q' ? document.activeElement.selectionStart : null; render(); if(k==='q'){ const s=document.querySelector('.search'); s.focus(); s.setSelectionRange(pos,pos); } },

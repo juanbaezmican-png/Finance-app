@@ -831,8 +831,8 @@ function viewSettings(){
     <div class="card settings-list"><h2>Categorías de gasto <button class="btn sm" onclick="App.editCategory(null,'gasto')">+ Nueva</button></h2>${catList('gasto')}</div>
     <div class="card settings-list"><h2>Categorías de ingreso <button class="btn sm" onclick="App.editCategory(null,'ingreso')">+ Nueva</button></h2>${catList('ingreso')}</div>
     <div class="card"><h2>Bancos y sincronización</h2>
-      <p class="hint" style="margin-top:0">Trae solos los movimientos de tus bancos desde tu servidor y guarda una copia para usar la app en el móvil y en el ordenador.</p>
-      <div class="field" style="margin-top:12px"><label>Dirección del servidor</label><input class="input" id="syncUrl" value="${esc(S.settings.syncUrl||DEF_SERVER)}" autocomplete="off"></div>
+      <p class="hint" style="margin-top:0">Trae solos los movimientos de tus bancos desde tu servidor y guarda una copia para usar la app en el móvil y en el ordenador. Necesitas tu propio servidor: si no lo tienes, deja esto vacío y la app funciona igual apuntando los gastos a mano.</p>
+      <div class="field" style="margin-top:12px"><label>Dirección del servidor</label><input class="input" id="syncUrl" value="${esc(S.settings.syncUrl||'')}" placeholder="https://tu-servidor.workers.dev" autocomplete="off"></div>
       <div class="field"><label>Contraseña del servidor (APP_PASSWORD)</label><input class="input" id="syncPass" type="password" autocomplete="off" value="${esc(S.settings.syncPass||'')}"></div>
       <div class="field"><label>Importar movimientos desde</label><input class="input" id="syncFrom" type="date" value="${esc(S.settings.syncFrom||todayStr())}"></div>
       <div class="row-btns"><button class="btn primary" onclick="App.saveSync()">${syncOn()?'Guardar':'Conectar'}</button>${syncOn()?`<button class="btn" onclick="App.bankSync({fromBanks:true})">Sincronizar ahora</button><a class="btn ghost" href="${esc(S.settings.syncUrl)}/connect?t=${encodeURIComponent(S.settings.syncPass)}" target="_blank" rel="noopener">Gestionar bancos</a>`:''}</div>
@@ -1431,7 +1431,6 @@ async function onScanFile(file){
 
 
 /* ============ Sincronización con el servidor (bancos, copia en la nube, widget) ============ */
-const DEF_SERVER = 'https://finanzas-sync.juanbaezmican.workers.dev';
 const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
 const syncOn = () => !!(S.settings.syncUrl && S.settings.syncPass);
 async function api(path, opts={}){

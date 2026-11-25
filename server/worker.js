@@ -13,7 +13,7 @@
 // KV:
 //   DB              almacenamiento de sesiones, movimientos y estado
 
-const VERSION = '2026-11-19.7';
+const VERSION = '2026-11-25.1';
 const EB_API = 'https://api.enablebanking.com';
 const CONSENT_DAYS = 180;
 const FIRST_SYNC_DAYS = 30;
@@ -183,17 +183,17 @@ main{max-width:560px;margin:0 auto;padding:32px 16px 60px}h1{font-size:32px;font
 input{width:100%;border:1px solid #86868b;border-radius:980px;padding:11px 18px;font:inherit;margin:10px 0}.ok{color:#248a3d}.err{color:#d70015}small{color:var(--muted)}</style></head><body><main>${body}</main></body></html>`,
   { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
 
-const WANTED = /santander|bbva|revolut|trade ?republic/i;
+
 
 async function connectPage(env, t, q) {
   const sessions = await getJSON(env, 'sessions', {});
   let list = [];
   try { list = (await eb(env, '/aspsps?country=ES')).aspsps || []; } catch (e) { return page('Error', `<h1>Error</h1><p class="err">${esc(e.message)}</p>`); }
-  const filtered = q ? list.filter(a => a.name.toLowerCase().includes(q.toLowerCase())) : list.filter(a => WANTED.test(a.name));
+  const filtered = q ? list.filter(a => a.name.toLowerCase().includes(q.toLowerCase())) : [...list].sort((x, y) => x.name.localeCompare(y.name, 'es'));
   const connected = Object.values(sessions);
   return page('Conectar bancos', `<h1>Tus bancos</h1><p>Conecta cada banco una vez. El permiso dura unos ${CONSENT_DAYS} días; después tendrás que renovarlo aquí.</p>
   <div class="card"><b>Conectados</b>${connected.length ? connected.map(s => `<div class="row"><div>${esc(s.aspsp)}<br><small>${s.accounts.length} cuenta(s) · hasta ${esc((s.valid_until || '').slice(0, 10))}</small>${s.error ? `<br><small class="err">${esc(s.error)}</small>` : ''}</div><span class="${s.error ? 'err' : 'ok'}">${s.error ? 'Revisar' : 'Activo'}</span></div>`).join('') : '<p>Todavía no hay ninguno.</p>'}</div>
-  <div class="card"><b>${q ? 'Resultados' : 'Tus bancos en España'}</b>
+  <div class="card"><b>${q ? 'Resultados' : 'Bancos en España'}</b>
   ${filtered.map(a => `<div class="row"><div style="display:flex;gap:12px;align-items:center">${a.logo ? `<img src="${esc(a.logo)}" alt="">` : ''}<div>${esc(a.name)}<br><small>${esc((a.psu_types || []).join(', '))}</small></div></div><a class="btn" href="/connect/start?t=${encodeURIComponent(t)}&name=${encodeURIComponent(a.name)}&country=${encodeURIComponent(a.country)}">Conectar</a></div>`).join('') || '<p>No he encontrado ese banco.</p>'}
   <form method="get" action="/connect"><input type="hidden" name="t" value="${esc(t)}"><input name="q" placeholder="Buscar otro banco (p. ej. Trade Republic)" value="${esc(q || '')}"><button class="btn o">Buscar</button></form></div>
   <div class="card"><a class="btn o" href="/sync?t=${encodeURIComponent(t)}">Sincronizar ahora</a></div>`);

@@ -309,10 +309,11 @@ function defaultState(){
       cat('otros_i','Otros','💰','#94a3b8','ingreso'),
     ],
     accounts:[
-      {id:'santander',name:'Santander',icon:'🏦',color:'#ff5c6c',role:'Nómina, recibo del coche y gimnasio'},
-      {id:'bbva',name:'BBVA',icon:'🏦',color:'#5b8cff',role:'Suscripciones online'},
-      {id:'revolut',name:'Revolut',icon:'💳',color:'#e2e8f0',role:'Gastos del día a día con pockets y tarjetas'},
-      {id:'traderepublic',name:'Trade Republic',icon:'📈',color:'#a3e635',role:'Ahorro e inversión'},
+      // Cuentas de ejemplo: se quitan al borrar los datos de ejemplo si no las usas; al conectar bancos se crean las tuyas
+      {id:'santander',name:'Santander',icon:'🏦',color:'#ff5c6c',role:'Ejemplo: nómina y recibos',sample:true},
+      {id:'bbva',name:'BBVA',icon:'🏦',color:'#5b8cff',role:'Ejemplo: suscripciones',sample:true},
+      {id:'revolut',name:'Revolut',icon:'💳',color:'#e2e8f0',role:'Ejemplo: gastos del día a día con pockets',sample:true},
+      {id:'traderepublic',name:'Trade Republic',icon:'📈',color:'#a3e635',role:'Ejemplo: ahorro',sample:true},
     ],
     pockets:[],
     movements:[],
@@ -831,7 +832,7 @@ function viewSettings(){
     <div class="card settings-list"><h2>Categorías de gasto <button class="btn sm" onclick="App.editCategory(null,'gasto')">+ Nueva</button></h2>${catList('gasto')}</div>
     <div class="card settings-list"><h2>Categorías de ingreso <button class="btn sm" onclick="App.editCategory(null,'ingreso')">+ Nueva</button></h2>${catList('ingreso')}</div>
     <div class="card"><h2>Bancos y sincronización</h2>
-      <p class="hint" style="margin-top:0">Trae solos los movimientos de tus bancos desde tu servidor y guarda una copia para usar la app en el móvil y en el ordenador. Necesitas tu propio servidor: si no lo tienes, deja esto vacío y la app funciona igual apuntando los gastos a mano.</p>
+      <p class="hint" style="margin-top:0">Trae solos los movimientos de tus bancos desde tu servidor y guarda una copia para usar la app en el móvil y en el ordenador. Necesitas tu propio servidor: si no lo tienes, deja esto vacío y la app funciona igual apuntando los gastos a mano. <a href="guia.html" target="_blank" rel="noopener">Cómo montar tu servidor</a>.</p>
       <div class="field" style="margin-top:12px"><label>Dirección del servidor</label><input class="input" id="syncUrl" value="${esc(S.settings.syncUrl||'')}" placeholder="https://tu-servidor.workers.dev" autocomplete="off"></div>
       <div class="field"><label>Contraseña del servidor (APP_PASSWORD)</label><input class="input" id="syncPass" type="password" autocomplete="off" value="${esc(S.settings.syncPass||'')}"></div>
       <div class="field"><label>Importar movimientos desde</label><input class="input" id="syncFrom" type="date" value="${esc(S.settings.syncFrom||todayStr())}"></div>
@@ -919,7 +920,7 @@ function openMovement(id, preset={}){
     o.querySelector('#catChips').addEventListener('click',e=>{ const b=e.target.closest('.chip'); if(!b) return; st.categoryId=b.dataset.id; o.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===b));
       // Sugerir el pocket asociado a la categoría
       const p=S.pockets.find(p=>(p.categories||[]).includes(st.categoryId)); if(p && st.type==='gasto' && !o.querySelector('#mPocket').value){ o.querySelector('#mPocket').value=p.id; o.querySelector('#mPocket').dispatchEvent(new Event('change')); } });
-    o.querySelector('#mPocket').addEventListener('change',e=>{ if(e.target.value){ const r=S.accounts.find(a=>a.id==='revolut'); if(r) o.querySelector('#mAccount').value='revolut'; o.querySelector('#mMethod').value='Tarjeta'; } });
+    o.querySelector('#mPocket').addEventListener('change',e=>{ if(e.target.value){ const r=S.accounts.find(a=>a.id==='revolut') || S.accounts.find(a=>/revolut/i.test(a.name)); if(r) o.querySelector('#mAccount').value=r.id; o.querySelector('#mMethod').value='Tarjeta'; } });
     const a=o.querySelector('#mAmount'); if(!m) setTimeout(()=>a.focus(),60);
     a.addEventListener('keydown',e=>{ if(e.key==='Enter') o.querySelector('#mSave').click(); });
     o.querySelector('#mSave').addEventListener('click',()=>{
@@ -1198,6 +1199,7 @@ function clearSample(){
   const keepP = new Set(S.movements.map(m=>m.pocketId));
   S.pockets=S.pockets.filter(p=>!p.sample || keepP.has(p.id)); S.pockets.forEach(p=>delete p.sample);
   (S.settings.sampleBudgets||[]).forEach(id=>{ const c=S.categories.find(x=>x.id===id); if(c) c.budget=0; }); S.settings.sampleBudgets=[];
+  { const used=new Set([...S.movements.map(m=>m.accountId), ...S.recurring.map(r=>r.accountId)]); S.accounts=S.accounts.filter(a=>!a.sample || used.has(a.id)); S.accounts.forEach(a=>delete a.sample); }
   S.settings.demo=false; save(); render(); toast('Listo. ¡A empezar de cero!','ok');
 }
 function wipe(){ if(!confirm('¿Borrar TODOS tus datos? Esto no se puede deshacer (descarga antes una copia si quieres).')) return; const keep={apiKey:S.settings.apiKey, syncPass:S.settings.syncPass, syncUrl:S.settings.syncUrl}; S=defaultState(); Object.assign(S.settings, keep); RDB.clear().catch(()=>{}); save(); ui.month=ymOf(todayStr()); render(); toast('Todo borrado','ok'); }
@@ -1534,6 +1536,13 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     if(fromBanks){ if(!quiet) toast('Consultando tus bancos…'); await api('/api/sync', { method:'POST' }); }
     const data = await api('/api/data');
     S.bank = { accounts:data.accounts||[], last_sync:data.last_sync, fetched:new Date().toISOString(), log:data.log||[] };
+    // Crea en la app una cuenta por cada banco conectado que no tenga ya
+    for(const aspsp of [...new Set(S.bank.accounts.map(a=>a.aspsp).filter(Boolean))]){
+      const ex = appAccountFor({aspsp});
+      if(ex){ const a=acc(ex); if(a) delete a.sample; continue; }
+      const id='acc_'+norm(aspsp).replace(/ /g,'_');
+      S.accounts.push({ id, name:aspsp, icon:/revolut|n26|wise/i.test(aspsp)?'💳':/trade|myinvestor|indexa|degiro/i.test(aspsp)?'📈':'🏦', color:COLORS[S.accounts.length%COLORS.length], role:'' });
+    }
     const newPockets = linkPockets(S.bank.accounts);
     const from = S.settings.syncFrom || todayStr();
     const txs = (data.transactions||[]).filter(t=>t.date && t.date>=from && t.amount>0);
@@ -1558,7 +1567,7 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
       if(ex){ if(ex.bankPending && !pending){ ex.bankPending=false; updated++; } continue; }
       if(seen[t.id]) continue; // borrado por ti: no se vuelve a importar
       const pk = S.pockets.find(p=>p.bankUid && p.bankUid===t.account_uid);
-      const accountId = pk ? 'revolut' : appAccountFor(t);
+      const accountId = appAccountFor(t) || (pk && acc('revolut') ? 'revolut' : '');
       const near = (m, days) => Math.abs(new Date(m.date)-new Date(t.date)) <= days*864e5;
       // 1) movimiento pendiente que ahora llega confirmado (cambia de id)
       let match = S.movements.find(m=>m.bankPending && m.bankAccount===t.account_uid && m.type===t.type && Math.abs(m.amount-t.amount)<0.01 && near(m,4));
@@ -1570,7 +1579,7 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
       const g = guessCategory(t, pk);
       const mv = { id:uid(), type:t.type, amount:t.amount, categoryId:g.id, date:t.date, method:guessMethod(t), accountId, pocketId: t.type==='gasto' && pk ? pk.id : '', note:(t.counterparty || t.description).slice(0,80), recurringId:'', sample:false,
         bankId:t.id, bankAccount:t.account_uid, bankPending:pending, bankDesc:t.description.slice(0,160), merchantKey:merchantKey(t), _t:Date.now() };
-      if(!mv.pocketId && t.type==='gasto' && accountId==='revolut'){ const p2=S.pockets.find(p=>(p.categories||[]).includes(g.id)); if(p2) mv.pocketId=p2.id; }
+      if(!mv.pocketId && t.type==='gasto' && /revolut/i.test(t.aspsp||'')){ const p2=S.pockets.find(p=>(p.categories||[]).includes(g.id)); if(p2) mv.pocketId=p2.id; }
       if(!g.sure) fresh.push({ mv, t:{...t, _pocket: pk?pk.name:''} });
       S.movements.push(mv); seen[t.id]=1;
     }

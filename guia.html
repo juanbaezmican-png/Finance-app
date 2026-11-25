@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Guía de Mis Finanzas</title>
+<meta name="description" content="Cómo instalar Mis Finanzas y conectarla a tus propios bancos, paso a paso.">
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--ink:#1d1d1f;--muted:#707070;--faint:#86868b;--line:#e6e6e8;--blue:#0071e3;--link:#0066cc;--green:#248a3d;--red:#d70015;--amber:#b64400}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Inter,Arial,sans-serif;letter-spacing:-.016em;-webkit-font-smoothing:antialiased}
+main{max-width:760px;margin:0 auto;padding:40px 16px 80px}
+h1{font-size:40px;line-height:1.08;font-weight:600;letter-spacing:-.025em;margin:0 0 12px}
+h2{font-size:28px;line-height:1.14;font-weight:600;letter-spacing:-.02em;margin:0 0 6px}
+h3{font-size:19px;font-weight:600;margin:22px 0 8px}
+p{margin:10px 0}
+.lead{font-size:19px;color:var(--muted)}
+.card{background:var(--card);border-radius:28px;padding:28px;margin-top:20px}
+@media (max-width:600px){h1{font-size:32px}h2{font-size:24px}.card{padding:22px}}
+.step{display:inline-block;font-size:13px;font-weight:600;color:var(--faint);margin-bottom:4px;letter-spacing:.02em;text-transform:uppercase}
+ol,ul{padding-left:22px;margin:10px 0}
+li{margin:6px 0}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em;background:var(--bg);padding:2px 6px;border-radius:6px;word-break:break-all}
+a{color:var(--link);text-decoration:none}
+a:hover{text-decoration:underline}
+.note{background:var(--bg);border-radius:18px;padding:14px 18px;margin:14px 0;font-size:15px}
+.note.warn{border-left:4px solid var(--amber)}
+.note.danger{border-left:4px solid var(--red)}
+.note.ok{border-left:4px solid var(--green)}
+table{width:100%;border-collapse:collapse;font-size:15px;margin:12px 0}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;color:var(--muted);font-size:13px}
+.toc a{display:block;padding:6px 0}
+.muted{color:var(--muted)}
+b{font-weight:600}
+</style>
+</head>
+<body>
+<main>
+  <h1>Mis Finanzas: guía de instalación</h1>
+  <p class="lead">Cómo tener la app en tu iPhone y, si quieres, conectarla a <b>tus propios bancos</b> para que los movimientos entren solos. Está explicado paso a paso: no hace falta saber nada de informática.</p>
+
+  <div class="card toc">
+    <h2>Índice</h2>
+    <a href="#parte1">Parte 1 · Instalar la app (5 minutos)</a>
+    <a href="#parte2">Parte 2 · Conectar tus bancos (1 hora, una sola vez)</a>
+    <a href="#parte3">Parte 3 · Configurar la app</a>
+    <a href="#parte4">Parte 4 · Widget y aviso de cada noche (opcional)</a>
+    <a href="#problemas">Si algo falla</a>
+    <a href="#seguridad">Seguridad</a>
+  </div>
+
+  <!-- ===================== PARTE 1 ===================== -->
+  <div class="card" id="parte1">
+    <span class="step">Parte 1</span>
+    <h2>Instalar la app</h2>
+    <p>Con esto ya puedes usar la app apuntando tus gastos a mano. Tus datos se guardan <b>solo en tu móvil</b>.</p>
+    <ol>
+      <li>En el iPhone abre <b>Safari</b>. Tiene que ser Safari, no Chrome.</li>
+      <li>Entra en <a href="https://juanbaezmican-png.github.io/Finance-app/">juanbaezmican-png.github.io/Finance-app</a>.</li>
+      <li>Toca el botón <b>Compartir</b> (un cuadrado con una flecha hacia arriba).</li>
+      <li>Desliza hacia abajo y toca <b>Añadir a pantalla de inicio</b> → <b>Añadir</b>.</li>
+      <li>Abre la app <b>siempre desde el icono €</b> de tu pantalla de inicio, no desde Safari.</li>
+      <li>Al principio verás <b>datos de ejemplo</b>. Si vas a conectar tus bancos, déjalos de momento: se borrarán en la Parte 3. Si no, toca arriba <b>Borrar ejemplo y empezar de cero</b>.</li>
+    </ol>
+    <div class="note">Si solo quieres apuntar gastos a mano, ya has terminado. Haz de vez en cuando una copia en <b>Ajustes → Copia de seguridad → Exportar copia</b>. Si borras los datos de Safari o cambias de móvil, sin copia se pierden.</div>
+  </div>
+
+  <!-- ===================== PARTE 2 ===================== -->
+  <div class="card" id="parte2">
+    <span class="step">Parte 2</span>
+    <h2>Conectar tus bancos</h2>
+    <p>Vas a montar <b>tu propio servidor</b>, gratis. Es un pequeño programa en internet que habla con tus bancos y le pasa los movimientos a tu app. Es solo tuyo y nadie más puede entrar.</p>
+    <p><b>Necesitas:</b> un ordenador, tu iPhone, tus claves de la banca online y una hora. Hazlo con calma y en orden.</p>
+    <div class="note warn">El permiso que vas a dar a tus bancos es <b>solo de lectura</b>: saldos y movimientos. Con él <b>no se puede mover dinero</b>. Lo da Enable Banking, una empresa autorizada para el sistema europeo de banca abierta (PSD2).</div>
+
+    <h3>Paso 1 · Crear tu servidor en Cloudflare</h3>
+    <ol>
+      <li>En el ordenador, entra en <a href="https://dash.cloudflare.com/sign-up">dash.cloudflare.com</a> y crea una cuenta gratuita. Confirma tu email.</li>
+      <li>En el menú de la izquierda: <b>Compute</b> → <b>Workers &amp; Pages</b>.</li>
+      <li>Pulsa <b>Create</b> (o <b>Create application</b>) → <b>Start with Hello World!</b>.</li>
+      <li>De nombre, escribe <code>finanzas-sync</code> y pulsa <b>Deploy</b>.</li>
+      <li>Verás una dirección como <code>https://finanzas-sync.TU-NOMBRE.workers.dev</code>. <b>Apúntala</b>: es la <b>dirección de tu servidor</b> y la usarás varias veces.</li>
+    </ol>
+
+    <h3>Paso 2 · Crear tu cuenta en Enable Banking</h3>
+    <ol>
+      <li>Entra en <a href="https://enablebanking.com">enablebanking.com</a> y crea una cuenta. Arriba a la derecha pone <b>Sign up</b>.</li>
+      <li>Ya dentro, arriba, pulsa <b>API applications</b>.</li>
+      <li>Rellena el formulario <b>Add a new application</b>:
+        <table>
+          <tr><th>Campo</th><th>Qué poner</th></tr>
+          <tr><td>Environment</td><td><b>Production</b> (no Sandbox)</td></tr>
+          <tr><td>Application name</td><td><code>Mis Finanzas</code></td></tr>
+          <tr><td>Allowed redirect URLs</td><td>La dirección de tu servidor <b>terminada en barra</b>: <code>https://finanzas-sync.TU-NOMBRE.workers.dev/</code></td></tr>
+          <tr><td>Description</td><td><code>Uso personal: ver mis propias cuentas</code></td></tr>
+          <tr><td>Email</td><td>Tu email</td></tr>
+          <tr><td>Privacy / Terms URL</td><td><code>https://juanbaezmican-png.github.io/Finance-app/guia.html</code></td></tr>
+          <tr><td>Clave privada</td><td>Deja la opción que viene marcada</td></tr>
+        </table>
+      </li>
+      <li>Envía el formulario. Se descargará un archivo terminado en <code>.pem</code>.</li>
+    </ol>
+    <div class="note danger"><b>El archivo .pem es la llave de tus cuentas.</b> Guárdalo en un sitio seguro: Enable Banking no te lo vuelve a dar. <b>No se lo mandes a nadie</b>, ni siquiera a quien te pasó esta guía.</div>
+    <p>El nombre del archivo, sin el <code>.pem</code>, es el <b>ID de tu aplicación</b>, algo como <code>69aa84fb-7507-…</code>. También aparece en Enable Banking junto al nombre de la app. Apúntalo.</p>
+
+    <h3>Paso 3 · Crear el almacén de datos</h3>
+    <ol>
+      <li>En Cloudflare, menú izquierdo: <b>Storage &amp; databases</b> → <b>Workers KV</b>.</li>
+      <li>Pulsa <b>Create</b> (o <b>Create instance</b>), escribe <code>finanzas-db</code> y pulsa <b>Create</b>.</li>
+      <li>Vuelve a <b>Compute</b> → <b>Workers &amp; Pages</b> → <b>finanzas-sync</b> → pestaña <b>Settings</b>.</li>
+      <li>En <b>Bindings</b>, pulsa <b>+ Add binding</b> → <b>KV namespace</b>. Pon <b>Variable name</b>: <code>DB</code> (en mayúsculas) y en <b>KV namespace</b> elige <code>finanzas-db</code>. Pulsa <b>Add binding</b>.</li>
+    </ol>
+
+    <h3>Paso 4 · Poner tus datos en el servidor</h3>
+    <p>En la misma página de <b>Settings</b>, en <b>Variables and secrets</b>, pulsa <b>+ Add variable</b>. En la ventana puedes añadir varias filas con <b>+ Add</b>:</p>
+    <table>
+      <tr><th>Key</th><th>Value</th><th>Secret</th></tr>
+      <tr><td><code>EB_APP_ID</code></td><td>El ID de tu aplicación de Enable Banking</td><td>No</td></tr>
+      <tr><td><code>REDIRECT_URL</code></td><td>La dirección de tu servidor terminada en barra <code>/</code></td><td>No</td></tr>
+      <tr><td><code>EB_PRIVATE_KEY</code></td><td>Todo el contenido del archivo <code>.pem</code> (ver abajo)</td><td><b>Sí ✔</b></td></tr>
+      <tr><td><code>APP_PASSWORD</code></td><td>Una contraseña que inventes tú (ver abajo)</td><td><b>Sí ✔</b></td></tr>
+    </table>
+    <ul>
+      <li><b>Contenido del .pem:</b> haz clic derecho en el archivo → <b>Abrir con</b> → <b>Bloc de notas</b> (en Mac, <b>TextEdit</b>). Selecciónalo todo (<b>Ctrl+A</b> o <b>Cmd+A</b>), cópialo y pégalo. Tiene que incluir las líneas <code>-----BEGIN</code> y <code>-----END</code>.</li>
+      <li><b>APP_PASSWORD:</b> usa <b>solo letras sin tilde y números</b>, sin espacios ni "ñ", y que sea larga, por ejemplo tres palabras y un número todo junto. <b>Apúntala</b>: la necesitarás en la app.</li>
+    </ul>
+    <p>Pulsa <b>Add variable and deploy</b>. Ignora el aviso naranja sobre "Wrangler": no te afecta.</p>
+
+    <h3>Paso 5 · Que mire tus bancos cada 6 horas</h3>
+    <ol>
+      <li>En <b>Settings</b>, en el menú de la derecha, pulsa <b>Trigger events</b>.</li>
+      <li><b>+ Add</b> → <b>Cron Triggers</b>. Escribe <code>0 */6 * * *</code> (o elige "cada 6 horas") y pulsa <b>Add</b>.</li>
+    </ol>
+
+    <h3>Paso 6 · Pegar el programa del servidor</h3>
+    <ol>
+      <li>Abre <a href="https://raw.githubusercontent.com/juanbaezmican-png/Finance-app/main/server/worker.js">este enlace con el código</a>. Verás una página llena de texto.</li>
+      <li>Haz clic en el texto, selecciónalo todo (<b>Ctrl+A</b>) y cópialo (<b>Ctrl+C</b>).</li>
+      <li>En Cloudflare, en <b>finanzas-sync</b>, pulsa <b>Edit code</b> (arriba a la derecha).</li>
+      <li>Arriba debe poner <b>(Active) Latest</b>. Si junto a <code>worker.js</code> sale un <b>candado</b>, despliega ese menú y elige la versión de arriba del todo.</li>
+      <li>Haz clic dentro del código, selecciónalo todo (<b>Ctrl+A</b>) y pega el tuyo (<b>Ctrl+V</b>).</li>
+      <li>Pulsa el botón azul <b>Deploy</b> y confírmalo.</li>
+      <li>Abre la dirección de tu servidor en el navegador. Debe poner <b>"Servidor de sincronización funcionando"</b> con un número de versión, <b>sin mensajes en rojo</b>.</li>
+    </ol>
+
+    <h3>Paso 7 · Activar Enable Banking con tus bancos</h3>
+    <p>En el modo gratuito, Enable Banking solo deja leer las cuentas que des de alta primero en su panel. Hazlo con <b>cada banco</b>:</p>
+    <ol>
+      <li>En Enable Banking → <b>API applications</b> → tu aplicación, pulsa <b>Activate by linking accounts</b>. Si la app ya está activa, busca la opción para enlazar cuentas en los <b>tres puntos ⋮</b>.</li>
+      <li>Elige <b>Spain</b> y tu banco.</li>
+      <li>Te llevará a la web de tu banco. <b>Comprueba la dirección</b>: tiene que ser la oficial del banco, con el candado. Entra con tus claves de siempre.</li>
+      <li><b>Marca todas tus cuentas.</b> Si usas Revolut, marca también los <b>pockets</b>: así la app sabrá cuánto queda en cada uno.</li>
+      <li>Acepta. Si solo te deja dar permiso hasta mañana, no pasa nada: el permiso largo lo darás en el paso 8.</li>
+      <li>Repite con tus demás bancos.</li>
+    </ol>
+    <p>Al terminar, tu aplicación en Enable Banking debe poner <b>Active</b>.</p>
+    <div class="note warn"><b>Si el banco te pide confirmar un pago o una transferencia, para.</b> Este proceso nunca pide eso. Si la página del banco falla al elegir cuentas, prueba desde el iPhone con Safari y sin traductor.</div>
+
+    <h3>Paso 8 · Conectar tus bancos con permiso de 6 meses</h3>
+    <ol>
+      <li>Abre la dirección de tu servidor, escribe tu <b>APP_PASSWORD</b> y pulsa <b>Entrar</b>.</li>
+      <li>Verás la lista de bancos de España, con un buscador abajo. Pulsa <b>Conectar</b> en cada uno de los tuyos y acepta en la web del banco, marcando otra vez todas las cuentas.</li>
+      <li>Al volver debe poner <b>"[Banco] conectado"</b> con 1 o más cuentas. Si pone <b>0 cuentas</b>, ese banco no está dado de alta en el paso 7: hazlo y vuelve a conectarlo aquí.</li>
+    </ol>
+    <div class="note ok">¡Tu servidor ya está listo! Cada 6 horas descargará tus movimientos solo.</div>
+  </div>
+
+  <!-- ===================== PARTE 3 ===================== -->
+  <div class="card" id="parte3">
+    <span class="step">Parte 3</span>
+    <h2>Configurar la app</h2>
+    <h3>Paso 1 · Conectar la app a tu servidor (en el iPhone)</h3>
+    <ol>
+      <li>Abre la app → <b>Ajustes</b> → tarjeta <b>Bancos y sincronización</b>.</li>
+      <li><b>Dirección del servidor:</b> la tuya, por ejemplo <code>https://finanzas-sync.TU-NOMBRE.workers.dev</code>.</li>
+      <li><b>Contraseña del servidor:</b> tu APP_PASSWORD. Cuidado con la mayúscula automática del teclado.</li>
+      <li><b>Importar movimientos desde:</b> el día desde el que quieres empezar, por ejemplo el día que cobres la próxima nómina.</li>
+      <li>Toca <b>Conectar</b>. Cuando pregunte si borra los datos de ejemplo, di <b>que sí</b>.</li>
+    </ol>
+    <p>La app creará sola tus <b>cuentas</b> y tus <b>pockets de Revolut</b>, y traerá tus movimientos ya clasificados. Si corriges la categoría de un movimiento, la app lo recordará para ese comercio.</p>
+
+    <h3>Paso 2 · El Plan de cada mes</h3>
+    <ol>
+      <li>Abajo, pestaña <b>Plan</b>. Responde <b>¿Cuándo cobras la nómina?</b>.</li>
+      <li>Toca <b>Configurar mis ingresos previstos</b>: tu nómina normal, las pagas extra con sus meses, y los meses especiales (bonus…) con el total neto de ese mes.</li>
+      <li>En <b>2. Gastos fijos y cuotas</b>, pulsa <b>+ Gasto fijo (todos los meses)</b> y apunta cada recibo, cuota o suscripción. Si un gasto es un porcentaje de lo que ganas, elige <b>% de los ingresos</b>.</li>
+      <li>En <b>3. Reparto a pockets</b>, escribe cuánto meterás en cada pocket.</li>
+      <li>Arriba verás el <b>ahorro</b>: lo que te sobra. Si quieres ahorrar más, recorta algo.</li>
+    </ol>
+    <p>Puedes preparar ya la próxima nómina y las dos siguientes con los botones de arriba. En <b>Previsión</b> verás cuánto llevarás ahorrado dentro de unos meses.</p>
+  </div>
+
+  <!-- ===================== PARTE 4 ===================== -->
+  <div class="card" id="parte4">
+    <span class="step">Parte 4 · opcional</span>
+    <h2>Widget y aviso de cada noche</h2>
+    <p>Las dos cosas usan <b>Scriptable</b>, una app gratuita. Búscala en la App Store: tiene un icono negro y su desarrollador es Simon B. Støvring.</p>
+    <h3>Widget de pockets</h3>
+    <ol>
+      <li>En la app: <b>Ajustes</b> → <b>Copiar código del widget</b>.</li>
+      <li>En Scriptable: <b>+</b> → mantén el dedo en la pantalla en blanco → <b>Pegar</b>. Arriba, cambia el nombre a <code>Pockets</code> y pulsa <b>Done</b>.</li>
+      <li>En la pantalla de inicio, mantén el dedo en un hueco → <b>Editar</b> → <b>Añadir widget</b> → <b>Scriptable</b> → tamaño mediano → <b>Añadir widget</b>.</li>
+      <li>Mantén el dedo sobre el widget → <b>Editar widget</b> → en <b>Script</b> elige <b>Pockets</b>.</li>
+    </ol>
+    <h3>Aviso de lo gastado cada noche</h3>
+    <ol>
+      <li>En la app: <b>Ajustes</b> → <b>Copiar código del aviso diario</b>.</li>
+      <li>En Scriptable: <b>+</b> → <b>Pegar</b> → nombre <code>Aviso diario</code> → <b>Done</b>. Ábrelo, pulsa <b>▶︎</b> y permite las notificaciones.</li>
+      <li>Abre la app <b>Atajos</b> → <b>Automatización</b> → <b>+</b> → <b>Hora del día</b>. Pon la hora (por ejemplo 21:30), marca <b>Diariamente</b> y <b>Ejecutar inmediatamente</b>, y pulsa <b>Siguiente</b>.</li>
+      <li>Busca la acción <b>Run Script</b> de Scriptable, elige <b>Aviso diario</b> y pulsa <b>OK</b>.</li>
+    </ol>
+    <div class="note">Los dos códigos llevan dentro tu contraseña del servidor: no los compartas.</div>
+  </div>
+
+  <!-- ===================== PROBLEMAS ===================== -->
+  <div class="card" id="problemas">
+    <h2>Si algo falla</h2>
+    <table>
+      <tr><th>Lo que ves</th><th>Qué hacer</th></tr>
+      <tr><td>"Contraseña incorrecta"</td><td>En Cloudflare → finanzas-sync → Settings → Variables, pulsa el lápiz de <code>APP_PASSWORD</code> y pon una nueva, solo con letras y números. Escríbela a mano.</td></tr>
+      <tr><td>"Application is not active"</td><td>Falta el paso 7 de la Parte 2: enlaza al menos un banco en el panel de Enable Banking.</td></tr>
+      <tr><td>Un banco conectado con "0 cuentas"</td><td>Ese banco no está enlazado en el panel de Enable Banking. Hazlo (paso 7) y vuelve a conectarlo desde tu servidor (paso 8).</td></tr>
+      <tr><td>En el editor de Cloudflare no te deja escribir (candado)</td><td>Estás en una versión antigua. Arriba, en el desplegable de versiones, elige la de arriba del todo (Latest).</td></tr>
+      <tr><td>"Falta el secreto…" en rojo en tu servidor</td><td>Revisa la Parte 2, paso 4: los nombres tienen que ser exactos y en mayúsculas.</td></tr>
+      <tr><td>El aviso dice "not found" o no ve tus gastos</td><td>Tu servidor tiene una versión antigua del código: repite la Parte 2, paso 6.</td></tr>
+      <tr><td>Aparece un pocket nuevo de Revolut que no sale en la app</td><td>Enlaza otra vez Revolut en el panel de Enable Banking marcando el pocket nuevo, y vuelve a conectarlo desde tu servidor.</td></tr>
+      <tr><td>Cada unos 6 meses, aviso rojo en Ajustes</td><td>El permiso de los bancos caduca. En Ajustes pulsa <b>Gestionar bancos</b> y vuelve a pulsar <b>Conectar</b> en cada uno.</td></tr>
+    </table>
+  </div>
+
+  <!-- ===================== SEGURIDAD ===================== -->
+  <div class="card" id="seguridad">
+    <h2>Seguridad</h2>
+    <ul>
+      <li><b>Tus claves del banco solo se escriben en la web de tu banco.</b> Ni Enable Banking ni tu servidor las ven.</li>
+      <li>El permiso es <b>solo de lectura</b>: nadie puede mover tu dinero con él. Puedes cancelarlo cuando quieras desde la app de tu banco, en la sección de terceros autorizados.</li>
+      <li><b>No compartas nunca</b> tu archivo <code>.pem</code>, tu APP_PASSWORD ni los códigos del widget y del aviso. Con ellos alguien podría <b>ver</b> tus movimientos.</li>
+      <li>Tu servidor y tus datos son <b>solo tuyos</b>: están en tu cuenta de Cloudflare y en tu móvil. Quien te pasó esta guía no tiene acceso a ellos.</li>
+      <li>El modo gratuito de Enable Banking es para <b>uso personal con tus propias cuentas</b>. Cada persona necesita su propio servidor y su propia cuenta de Enable Banking.</li>
+    </ul>
+    <p class="muted">Mis Finanzas es una app personal sin garantías. Úsala bajo tu responsabilidad.</p>
+  </div>
+</main>
+</body>
+</html>

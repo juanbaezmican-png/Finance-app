@@ -122,6 +122,7 @@ svg.i{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stro
 .item .s{font-size:13px;color:var(--muted);margin-top:2px;display:flex;justify-content:space-between;gap:8px}
 .item .s span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .budget .prog{margin-top:8px}
+.ico.paid{background:var(--green)!important;color:#fff;font-size:20px;font-weight:600}
 .pi .t span:first-child{white-space:normal;overflow:visible;line-height:1.25}
 .pi .s span:first-child{white-space:normal}
 .pi{gap:10px}
@@ -749,10 +750,10 @@ function viewPlanMonth(){
     ${recv && Math.abs(recv-pt.inc)>0.5?`<button class="btn sm ghost" onclick="App.planSet('${ym}','income','','${recv}')">Usar lo recibido (${eur(recv)})</button>`:''}
   </div>
 
-  <div class="card section"><h2>2. Gastos fijos y cuotas <small>${eur(pt.paid,0)} pagado de ${eur(pt.fixed,0)}</small></h2>
+  <div class="card section"><h2>2. Gastos fijos y cuotas <small>${pt.items.filter(i=>!i.off&&i.isPaid).length} de ${pt.items.filter(i=>!i.off).length} pagados · ${eur(pt.paid,0)} de ${eur(pt.fixed,0)}</small></h2>
     <p class="hint" style="margin:-6px 0 4px">Ajusta el importe de este mes o quita lo que no toque. Se marcan como pagados al aparecer en el banco.</p>
     ${pt.items.length?pt.items.map(it=>{ const c=cat(it.categoryId), a=acc(it.accountId);
-      return `<div class="item pi" style="${it.off?'opacity:.45':''}"><div class="ico">${c.icon}</div><div class="body"><div class="t"><span>${esc(it.name)}${it.kind==='extra'?'<span class="tag rec">solo este mes</span>':''}${it.pct?`<span class="tag rec">${fmtNum(it.pct, it.pct%1?1:0)} % de ingresos</span>`:''}</span></div><div class="s"><span>${it.off?'No toca este mes':it.isPaid?`<span class="green">Pagado</span>${it.paidMov?' · '+shortDate(it.paidMov.date):''}`:`Pendiente${it.day?' · día '+it.day:''}`}${a?' · '+esc(a.name):''}</span></div></div>
+      return `<div class="item pi" style="${it.off?'opacity:.45':''}"><div class="ico${it.isPaid?' paid':''}" title="${it.isPaid?'Pagado':'Pendiente'}">${it.isPaid?'✓':c.icon}</div><div class="body"><div class="t"><span>${esc(it.name)}${it.kind==='extra'?'<span class="tag rec">solo este mes</span>':''}${it.pct?`<span class="tag rec">${fmtNum(it.pct, it.pct%1?1:0)} % de ingresos</span>`:''}</span></div><div class="s"><span>${it.off?'No toca este mes':it.isPaid?`<span class="green">Pagado</span>${it.paidMov?' · '+shortDate(it.paidMov.date):''}`:`Pendiente${it.day?' · día '+it.day:''}`}${a?' · '+esc(a.name):''}</span></div></div>
         ${it.off?'':moneyInput(it.amount, `App.planSet('${ym}','${it.kind}','${it.id}',this.value)`, it.name)}
         <button class="btn sm ghost" style="padding:6px 8px" onclick="App.planItemMenu('${ym}','${it.kind}','${it.id}')" aria-label="Opciones">⋯</button></div>`; }).join('')
       :'<div class="empty">Añade tus cuotas, recibos y suscripciones. Se guardan para todos los meses.</div>'}
@@ -769,6 +770,32 @@ function viewPlanMonth(){
   <div class="card section"><h2>4. Ahorro <small>lo que sobra</small></h2>
     <div class="item pi"><div class="ico">📈</div><div class="body"><div class="t"><span>Lo que sobra</span><span class="num ${pt.saving<0?'red':'green'}">${eur(pt.saving)}</span></div><div class="s"><span>${sentTR?`Enviado a Trade Republic: <b class="green num">${eur(sentTR)}</b>${pt.saving-sentTR>0.5?` · faltan ${eur(pt.saving-sentTR)}`:' ✓'}`:'Aún no has enviado nada a Trade Republic'}</span></div></div></div>
     <p class="hint">Se calcula solo: ingresos menos gastos fijos y del mes, y menos pockets. Si quieres ahorrar más, recorta arriba.</p>
+  </div>
+  ${bankSplitCard(ym, pt)}`;
+}
+
+// Cuánto tiene que haber en cada banco este mes: sus gastos fijos y del mes, los pockets (Revolut) y el ahorro
+function bankSplitCard(ym, pt){
+  const rows = {};
+  const row = id => rows[id] = rows[id] || { id, fixed:0, paid:0, pockets:0, saving:0, n:0 };
+  for(const it of pt.items.filter(i=>!i.off)){ const r=row(it.accountId||''); r.fixed+=it.amount; r.n++; if(it.isPaid) r.paid+=it.amount; }
+  const revId = acc('revolut') ? 'revolut' : (S.accounts.find(a=>/revolut/i.test(a.name))?.id || '_pockets');
+  if(pt.pockets>0) row(revId).pockets += pt.pockets;
+  const trId = acc('traderepublic') ? 'traderepublic' : (S.accounts.find(a=>/trade|ahorro|invers/i.test(a.name))?.id || '_saving');
+  if(pt.saving>0) row(trId).saving += pt.saving;
+  const list = Object.values(rows).map(r=>({ ...r, total:round2(r.fixed+r.pockets+r.saving), pending:round2(r.fixed-r.paid) })).filter(r=>r.total>0).sort((a,b)=>b.total-a.total);
+  if(!list.length) return '';
+  // ¿En qué cuenta entra la nómina? La de la última nómina recibida
+  const sal = S.movements.filter(m=>m.type==='ingreso' && m.categoryId==='nomina' && m.accountId).sort((a,b)=>b.date.localeCompare(a.date))[0];
+  const salId = sal ? sal.accountId : '';
+  const name = id => id==='_pockets' ? 'Pockets' : id==='_saving' ? 'Ahorro' : id==='' ? 'Sin cuenta asignada' : (acc(id)?.name || id);
+  const icon = id => id==='' ? '❔' : id==='_pockets' ? '👛' : id==='_saving' ? '📈' : (acc(id)?.icon || '🏦');
+  const stay = list.find(r=>r.id===salId), send = list.filter(r=>r.id!==salId && r.id!=='');
+  return `<div class="card section"><h2>5. Cuánto va a cada banco <small>${eur(list.reduce((a,r)=>a+r.total,0),0)} en total</small></h2>
+    ${salId?`<p class="hint" style="margin:-6px 0 6px">Tu nómina entra en <b>${esc(name(salId))}</b>. ${stay?`Déjate allí <b class="num">${eur(stay.total)}</b>`:'No tiene gastos asignados'}${send.length?` y envía: ${send.map(r=>`<b>${esc(name(r.id))}</b> ${eur(r.total)}`).join(' · ')}.`:'.'}</p>`:''}
+    ${list.map(r=>`<div class="item pi"><div class="ico">${icon(r.id)}</div><div class="body"><div class="t"><span>${esc(name(r.id))}</span><span class="num">${eur(r.total)}</span></div>
+      <div class="s"><span>${[r.fixed?`Fijos ${eur(r.fixed)}${r.n?` (${r.pending>0.005?`<b>falta ${eur(r.pending)}</b> por cobrarse`:'<span class="green">todo pagado ✓</span>'})`:''}`:'', r.pockets?`Pockets ${eur(r.pockets)}`:'', r.saving?`Ahorro ${eur(r.saving)}`:''].filter(Boolean).join(' · ')}</span></div></div></div>`).join('')}
+    ${rows['']?'<p class="hint">Hay gastos fijos sin cuenta: toca ⋯ → Editar gasto fijo y elige desde qué banco se pagan.</p>':''}
   </div>`;
 }
 

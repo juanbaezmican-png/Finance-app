@@ -362,7 +362,12 @@ function runRecurring(){
 }
 
 /* ============ Cálculos ============ */
-const movsOf = ym => S.movements.filter(m=>m.date.startsWith(ym));
+// Con cobro a final de mes, cada "mes" va de una nómina a la siguiente (ym = mes de los gastos)
+function movsOf(ym){
+  if(!payCutoff()) return S.movements.filter(m=>m.date.startsWith(ym));
+  const a=periodStart(ym), b=periodStart(addMonths(ym,1));
+  return S.movements.filter(m=>m.date>=a && m.date<b);
+}
 function totals(ym){ let inc=0,exp=0; for(const m of movsOf(ym)){ if(m.type==='ingreso') inc+=m.amount; else exp+=m.amount; } return {inc:round2(inc),exp:round2(exp),left:round2(inc-exp)}; }
 function expByCat(ym){ const o={}; for(const m of movsOf(ym)) if(m.type==='gasto') o[m.categoryId]=(o[m.categoryId]||0)+m.amount; return o; }
 // Lo asignado a un pocket en un mes: lo que has metido en él ese mes según Revolut; si no hay traspasos, el valor por defecto
@@ -398,7 +403,7 @@ function renderNav(){
   $('#bottomnav').innerHTML = btns;
   $('#sidebar').innerHTML = `<div class="brand"><div class="logo">€</div>Mis Finanzas</div>${btns}<button class="btn primary addbtn" onclick="App.openMovement()">Añadir movimiento</button><button class="btn addbtn" style="margin-top:8px" onclick="App.scan()">${ic('scan')} Escanear ticket</button>`;
 }
-function monthSel(){ const lbl = (ui.tab==='plan' && payCutoff()) ? 'Nómina '+monthLabel(payMonthOf(ui.month)).replace(/ \d{4}$/,'') : monthLabel(ui.month); return `<div class="monthsel"><button onclick="App.month(-1)" aria-label="Mes anterior">‹</button><span>${lbl}</span><button onclick="App.month(1)" aria-label="Mes siguiente">›</button></div>`; }
+function monthSel(){ const lbl = payCutoff() ? 'Nómina '+monthName(payMonthOf(ui.month))+(payMonthOf(ui.month).slice(0,4)!==todayStr().slice(0,4)?' '+payMonthOf(ui.month).slice(0,4):'') : monthLabel(ui.month); return `<div class="monthsel"><button onclick="App.month(-1)" aria-label="Mes anterior">‹</button><span>${lbl}</span><button onclick="App.month(1)" aria-label="Mes siguiente">›</button></div>`; }
 function topbar(title, withMonth=true){ return `<div class="topbar"><h1>${title}</h1>${withMonth?monthSel():''}</div>`; }
 function demoBanner(){ return S.settings.demo ? `<div class="demo-banner"><span><span class="lbl">Ejemplo</span>Estás viendo datos de ejemplo.</span><button class="btn sm" onclick="App.clearSample()">Borrar ejemplo y empezar de cero</button></div>` : ''; }
 
@@ -421,7 +426,7 @@ function barsChart(months){
   const max = Math.max(...data.map(d=>d.v), 1);
   const W=360,H=180,pt=22,pb=26,bw=34, step=W/data.length;
   const bars = data.map((d,i)=>{ const h=(d.v/max)*(H-pt-pb); const x=i*step+(step-bw)/2, y=H-pb-h; const sel=d.m===ui.month;
-    return `<g style="cursor:pointer" onclick="App.setMonth('${d.m}')"><rect x="${i*step}" y="0" width="${step}" height="${H}" fill="transparent"/><rect x="${x}" y="${y}" width="${bw}" height="${Math.max(h,2)}" rx="7" fill="${sel?'var(--accent)':'var(--line)'}"/>${d.v?`<text x="${x+bw/2}" y="${y-6}" text-anchor="middle" font-size="10.5" font-weight="500" fill="${sel?'var(--text)':'var(--muted)'}">${eurK(d.v)}</text>`:''}<text x="${x+bw/2}" y="${H-8}" text-anchor="middle" font-size="11" fill="${sel?'var(--text)':'var(--muted)'}" font-weight="${sel?600:400}">${monthLabel(d.m,true)}</text><title>${monthLabel(d.m)}: ${eur(d.v)}</title></g>`; }).join('');
+    return `<g style="cursor:pointer" onclick="App.setMonth('${d.m}')"><rect x="${i*step}" y="0" width="${step}" height="${H}" fill="transparent"/><rect x="${x}" y="${y}" width="${bw}" height="${Math.max(h,2)}" rx="7" fill="${sel?'var(--accent)':'var(--line)'}"/>${d.v?`<text x="${x+bw/2}" y="${y-6}" text-anchor="middle" font-size="10.5" font-weight="500" fill="${sel?'var(--text)':'var(--muted)'}">${eurK(d.v)}</text>`:''}<text x="${x+bw/2}" y="${H-8}" text-anchor="middle" font-size="11" fill="${sel?'var(--text)':'var(--muted)'}" font-weight="${sel?600:400}">${perShort(d.m)}</text><title>${perLabel(d.m)}: ${eur(d.v)}</title></g>`; }).join('');
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}">${bars}</svg></div>`;
 }
 function savingsChart(months){
@@ -433,9 +438,9 @@ function savingsChart(months){
   const y = v => pt + (max-v)/span*(H-pt-pb);
   const y0=y(0);
   const bars = data.map((d,i)=>{ const x=i*step+(step-bw)/2; const top=Math.min(y(d.v),y0), h=Math.max(Math.abs(y(d.v)-y0),1.5);
-    return `<rect x="${x}" y="${top}" width="${bw}" height="${h}" rx="5" fill="${d.v>=0?'rgba(36,138,61,.22)':'rgba(215,0,21,.28)'}"><title>${monthLabel(d.m)}: ${eur(d.v)}</title></rect><text x="${x+bw/2}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--muted)">${monthLabel(d.m,true)}</text>`; }).join('');
+    return `<rect x="${x}" y="${top}" width="${bw}" height="${h}" rx="5" fill="${d.v>=0?'rgba(36,138,61,.22)':'rgba(215,0,21,.28)'}"><title>${perLabel(d.m)}: ${eur(d.v)}</title></rect><text x="${x+bw/2}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--muted)">${perShort(d.m)}</text>`; }).join('');
   const pts = cum.map((c,i)=>`${i*step+step/2},${y(c)}`).join(' ');
-  const dots = cum.map((c,i)=>`<circle cx="${i*step+step/2}" cy="${y(c)}" r="4" fill="var(--bg2)" stroke="var(--accent)" stroke-width="2.5"><title>Acumulado ${monthLabel(data[i].m)}: ${eur(c)}</title></circle>`).join('');
+  const dots = cum.map((c,i)=>`<circle cx="${i*step+step/2}" cy="${y(c)}" r="4" fill="var(--bg2)" stroke="var(--accent)" stroke-width="2.5"><title>Acumulado ${perLabel(data[i].m)}: ${eur(c)}</title></circle>`).join('');
   const last = cum[cum.length-1];
   const lx = (cum.length-1)*step+step/2;
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}"><line x1="0" x2="${W}" y1="${y0}" y2="${y0}" stroke="var(--line)" stroke-dasharray="3 4"/>${bars}<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${dots}<text x="${Math.min(lx, W-4)}" y="${Math.max(y(last)-10, 12)}" text-anchor="end" font-size="11" font-weight="600" fill="var(--accent)">${eurK(last)}</text></svg></div>
@@ -446,13 +451,13 @@ const last6 = () => Array.from({length:6},(_,i)=>addMonths(ui.month, i-5));
 /* ============ Vistas ============ */
 function viewHome(){
   const t=totals(ui.month), prevM=addMonths(ui.month,-1), p=totals(prevM);
-  const isCur = ui.month===ymOf(todayStr());
+  const isCur = ui.month===currentPlanMonth();
   let cmp;
   if(!t.exp && !p.exp) cmp=`<span class="badge">${ic('info')}</span><span class="muted">Todavía no hay gastos para comparar.</span>`;
-  else if(!p.exp) cmp=`<span class="badge">${ic('info')}</span><span>No hay gastos en ${monthName(prevM)} para comparar.</span>`;
+  else if(!p.exp) cmp=`<span class="badge">${ic('info')}</span><span>No hay gastos en ${perName(prevM)} para comparar.</span>`;
   else { const d=(t.exp-p.exp)/p.exp*100; const less=d<0;
-    cmp = Math.abs(d)<0.5 ? `<span class="badge">${ic('info')}</span><span>Has gastado prácticamente lo mismo que en ${monthName(prevM)}.</span>`
-      : `<span class="badge" style="color:${less?'var(--green)':'var(--red)'}">${ic(less?'trendDown':'trendUp')}</span><span>Has gastado un <b>${pct(Math.abs(d))} ${less?'menos':'más'}</b> que en ${monthName(prevM)} <span class="muted">(${eur(t.exp)} frente a ${eur(p.exp)})${isCur?' · mes en curso':''}</span></span>`; }
+    cmp = Math.abs(d)<0.5 ? `<span class="badge">${ic('info')}</span><span>Has gastado prácticamente lo mismo que en ${perName(prevM)}.</span>`
+      : `<span class="badge" style="color:${less?'var(--green)':'var(--red)'}">${ic(less?'trendDown':'trendUp')}</span><span>Has gastado un <b>${pct(Math.abs(d))} ${less?'menos':'más'}</b> que en ${perName(prevM)} <span class="muted">(${eur(t.exp)} frente a ${eur(p.exp)})${isCur?' · mes en curso':''}</span></span>`; }
   const by=expByCat(ui.month);
   const items=Object.entries(by).map(([id,v])=>{ const c=cat(id); return {label:c.name, icon:c.icon, color:c.color, value:round2(v)}; }).sort((a,b)=>b.value-a.value);
   const alerts=budgetAlerts(ui.month);
@@ -462,14 +467,14 @@ function viewHome(){
   return `${topbar('Resumen')}${demoBanner()}
   <div class="grid g3">
     <div class="card stat hero"><div class="lbl">Lo que me queda</div><div class="val num ${t.left<0?'red':''}">${eur(t.left)}</div><div class="sub">${t.inc?`Ahorras el ${pct(Math.max(savedRate,0))} de tus ingresos`:'Sin ingresos registrados este mes'}${(S.bankSavings||{})[ui.month]?` · ${eur(S.bankSavings[ui.month])} enviados a Trade Republic`:''}</div></div>
-    <div class="card stat"><div class="lbl">Ingresos</div><div class="val num green">${eur(t.inc)}</div><div class="sub">${monthName(prevM)}: ${eur(p.inc)}</div></div>
-    <div class="card stat"><div class="lbl">Gastos</div><div class="val num">${eur(t.exp)}</div><div class="sub">${monthName(prevM)}: ${eur(p.exp)}</div></div>
+    <div class="card stat"><div class="lbl">Ingresos</div><div class="val num green">${eur(t.inc)}</div><div class="sub">${perName(prevM)}: ${eur(p.inc)}</div></div>
+    <div class="card stat"><div class="lbl">Gastos</div><div class="val num">${eur(t.exp)}</div><div class="sub">${perName(prevM)}: ${eur(p.exp)}</div></div>
   </div>
   <div class="compare">${cmp}</div>
-  ${ui.month===ymOf(todayStr()) && justPaid() && !hasPlanTouched(currentPlanMonth()) ? `<div class="compare" style="cursor:pointer" onclick="App.go('plan')"><span class="badge" style="color:var(--accent)">${ic('target')}</span><span><b>${payCutoff()?'¡Nómina a la vista!':'Nuevo mes:'}</b> revisa tus gastos fijos y reparte la nómina en el plan de ${monthName(currentPlanMonth())} ›</span></div>` : ''}
+  ${ui.month===currentPlanMonth() && justPaid() && !hasPlanTouched(currentPlanMonth()) ? `<div class="compare" style="cursor:pointer" onclick="App.go('plan')"><span class="badge" style="color:var(--accent)">${ic('target')}</span><span><b>${payCutoff()?'¡Nómina a la vista!':'Nuevo mes:'}</b> revisa tus gastos fijos y reparte la nómina en el plan de ${monthName(currentPlanMonth())} ›</span></div>` : ''}
   ${alerts.length?`<div class="alerts">${alerts.map(a=>`<div class="alert ${a.l}"><span class="mk"></span><span>${a.text}</span></div>`).join('')}</div>`:''}
   <div class="grid g2 section">
-    <div class="card"><h2>Gastos por categoría <small>${monthLabel(ui.month)}</small></h2>${donut(items, t.exp)}</div>
+    <div class="card"><h2>Gastos por categoría <small>${perLabel(ui.month)}</small></h2>${donut(items, t.exp)}</div>
     <div class="card"><h2>Gastos últimos 6 meses <small>toca un mes</small></h2>${barsChart(last6())}</div>
   </div>
   <div class="grid g2 section">
@@ -512,7 +517,7 @@ function viewMovs(){
     <div class="summary-line"><span>${list.length} movimiento${list.length===1?'':'s'}</span><span>Ingresos <b class="green num">${eur(inc)}</b></span><span>Gastos <b class="num">${eur(exp)}</b></span></div>
     <div class="row-btns">${Object.values(f).some(Boolean)?`<button class="btn sm ghost" onclick="App.clearFilters()">Quitar filtros</button>`:''}<button class="btn sm" onclick="App.exportCSV('month')">${ic('down')} Exportar mes</button><button class="btn sm" onclick="App.exportCSV('all')">${ic('down')} Exportar todo</button></div>
   </div>
-  <div class="card" style="padding-top:4px">${list.length ? Object.entries(groups).map(([d,ms])=>{ const dt=round2(ms.reduce((a,m)=>a+(m.type==='ingreso'?m.amount:-m.amount),0)); return `<div class="dayhead"><span>${dayLabel(d)}</span><span class="num">${dt>0?'+':''}${eur(dt)}</span></div>${ms.map(movItem).join('')}`; }).join('') : `<div class="empty"><span class="big">${ic('list')}</span>${Object.values(f).some(Boolean)?'Ningún movimiento coincide con los filtros.':'No hay movimientos en '+monthLabel(ui.month)+'.'}<br><br><button class="btn primary" onclick="App.openMovement()">+ Añadir movimiento</button></div>`}</div>`;
+  <div class="card" style="padding-top:4px">${list.length ? Object.entries(groups).map(([d,ms])=>{ const dt=round2(ms.reduce((a,m)=>a+(m.type==='ingreso'?m.amount:-m.amount),0)); return `<div class="dayhead"><span>${dayLabel(d)}</span><span class="num">${dt>0?'+':''}${eur(dt)}</span></div>${ms.map(movItem).join('')}`; }).join('') : `<div class="empty"><span class="big">${ic('list')}</span>${Object.values(f).some(Boolean)?'Ningún movimiento coincide con los filtros.':'No hay movimientos en '+perLabel(ui.month)+'.'}<br><br><button class="btn primary" onclick="App.openMovement()">+ Añadir movimiento</button></div>`}</div>`;
 }
 
 function viewPockets(){
@@ -525,10 +530,10 @@ function viewPockets(){
     <div class="card stat"><div class="lbl">Gastado</div><div class="val num">${eur(spent)}</div><div class="sub">${total?pct(spent/total*100)+' del total':'—'}</div></div>
   </div>
   <div class="card section"><h2>Pockets de Revolut <button class="btn sm" onclick="App.editPocket()">+ Nuevo pocket</button></h2>
-  ${S.pockets.length?`<div class="pockets">${S.pockets.map(p=>{ const sp=pocketSpent(p.id,ui.month), l=level(sp,alloc(p,ui.month)), left=pocketLeft(p,ui.month), real=ui.month===ymOf(todayStr())&&pocketBalance(p)!=null;
+  ${S.pockets.length?`<div class="pockets">${S.pockets.map(p=>{ const sp=pocketSpent(p.id,ui.month), l=level(sp,alloc(p,ui.month)), left=pocketLeft(p,ui.month), real=ui.month===currentPlanMonth()&&pocketBalance(p)!=null;
     return `<div class="pocket" onclick="App.pocketDetail('${p.id}')"><div class="top"><span>${p.icon}</span><span>${esc(p.name)}</span>${l?`<span class="tag ${l}">${l==='over'?'Pasado':'Casi vacío'}</span>`:''}</div><div class="left num ${left<0?'red':''}">${eur(left)}</div><div class="of">${real?'en Revolut':`quedan de ${eur(alloc(p,ui.month))}`} · gastado ${eur(sp)}${alloc(p,ui.month)?` · metido ${eur(alloc(p,ui.month),0)}`:''}</div><div class="prog ${l}"><i style="width:${Math.min(alloc(p,ui.month)?sp/alloc(p,ui.month)*100:0,100)}%;${l?'':`background:${p.color}`}"></i></div></div>`; }).join('')}</div><p class="hint">Cada pocket tiene su tarjeta. Al apuntar un gasto elige el pocket y se descontará de aquí. Toca un pocket para ver sus movimientos o editarlo.</p>`
   :`<div class="empty"><span class="big">${ic('wallet')}</span>Aún no tienes pockets. Crea uno por cada pocket de Revolut (p. ej. Súper, Ocio, Comer fuera) con lo que le asignas al mes.<br><br><button class="btn primary" onclick="App.editPocket()">+ Crear pocket</button></div>`}</div>
-  <div class="card section"><h2>Mis cuentas <small>${monthLabel(ui.month)}</small></h2><div class="accounts">${S.accounts.map(a=>{ const f=accFlows(a.id);
+  <div class="card section"><h2>Mis cuentas <small>${perLabel(ui.month)}</small></h2><div class="accounts">${S.accounts.map(a=>{ const f=accFlows(a.id);
     const bal = (S.bank?.accounts||[]).filter(x=>appAccountFor({aspsp:x.aspsp})===a.id && x.balance && Number.isFinite(x.balance.amount)).reduce((s,x)=>s+x.balance.amount,0);
     const hasBal = (S.bank?.accounts||[]).some(x=>appAccountFor({aspsp:x.aspsp})===a.id && x.balance);
     const extra = (hasBal?`<div class="flows" style="margin-top:6px"><span class="muted">Saldo en el banco</span><b class="num">${eur(bal)}</b></div>`:'') + (a.id==='traderepublic' && S.goals.length ? `<div class="flows" style="margin-top:6px"><span class="muted">En objetivos</span><b class="num">${eur(S.goals.reduce((x,g)=>x+g.saved,0))}</b></div>`:'');
@@ -540,19 +545,32 @@ function viewPockets(){
 /* ============ Día de cobro: a qué plan pertenece cada fecha ============ */
 // Si cobras a final de mes, la nómina (y los traspasos a pockets de ese día) son para el mes siguiente
 function payCutoff(){ const d=S.settings.payDay; if(d==null) return 0; if(d==='last') return 25; return d>=15 ? Math.max(15, d-5) : 0; }
-function planMonthOf(date){ const c=payCutoff(); const ym=date.slice(0,7); return c && +date.slice(8,10)>=c ? addMonths(ym,1) : ym; }
+// Día en que empieza cada periodo: el día real en que entró la nómina; si aún no ha llegado, el día de cobro previsto
+let _ps = { key:'', map:{} };
+function periodStart(ym){
+  const key = S.movements.length+'|'+(S.settings.updatedAt||'')+'|'+S.settings.payDay;
+  if(_ps.key!==key) _ps={ key, map:{} };
+  if(_ps.map[ym]) return _ps.map[ym];
+  const pm = addMonths(ym,-1), d=S.settings.payDay;
+  const sal = S.movements.filter(m=>m.type==='ingreso' && m.categoryId==='nomina' && m.amount>=300 && m.date && m.date.slice(0,7)===pm && +m.date.slice(8,10)>=15).map(m=>m.date).sort()[0];
+  const exp = `${pm}-${pad(d==='last' ? daysInMonth(pm) : Math.min(+d||daysInMonth(pm), daysInMonth(pm)))}`;
+  return _ps.map[ym] = sal || exp;
+}
+function planMonthOf(date){ if(!payCutoff()) return date.slice(0,7); const ym=date.slice(0,7), next=addMonths(ym,1); return date>=periodStart(next) ? next : ym; }
+const perLabel = ym => payCutoff() ? monthLabel(payMonthOf(ym)) : monthLabel(ym);
+const perName = ym => payCutoff() ? monthName(payMonthOf(ym)) : monthName(ym);
+const perShort = ym => MESES_C[+(payCutoff() ? payMonthOf(ym) : ym).slice(5)-1];
 const payMonthOf = planYm => payCutoff() ? addMonths(planYm,-1) : planYm;
 function currentPlanMonth(){ return planMonthOf(todayStr()); }
 function payDateLabel(planYm){
-  const pm=payMonthOf(planYm), d=S.settings.payDay;
-  if(d==null) return monthName(planYm);
-  const day = d==='last' ? daysInMonth(pm) : Math.min(d, daysInMonth(pm));
-  return `${day} ${MESES_C[+pm.slice(5)-1]}`;
+  if(S.settings.payDay==null) return monthName(planYm);
+  const st=periodStart(planYm); // día real de cobro si ya llegó la nómina; si no, el previsto
+  return `${+st.slice(8,10)} ${MESES_C[+st.slice(5,7)-1]}`;
 }
 // La nómina que toca preparar: la próxima que vas a cobrar (o la de estos días si ya estás cerca del cobro)
-function nextPlanMonth(){ const c=payCutoff(); return c && new Date().getDate()<c ? addMonths(currentPlanMonth(),1) : currentPlanMonth(); }
+function nextPlanMonth(){ if(!payCutoff()) return currentPlanMonth(); const cur=currentPlanMonth(); return justPaid() ? cur : addMonths(cur,1); }
 const payDatePassed = planYm => { const pm=payMonthOf(planYm), d=S.settings.payDay; if(d==null) return planYm<=ymOf(todayStr()); const day = d==='last' ? daysInMonth(pm) : Math.min(d, daysInMonth(pm)); return `${pm}-${pad(day)}` <= todayStr(); };
-function justPaid(){ const c=payCutoff(), day=new Date().getDate(); return c ? (day>=c || day<=5) : day<=10; }
+function justPaid(){ if(!payCutoff()) return new Date().getDate()<=10; const st=periodStart(currentPlanMonth()); return (new Date(todayStr()) - new Date(st)) <= 7*864e5; }
 
 /* ============ Previsión de ingresos y ahorro ============ */
 // S.incomeForecast = { base, half, halfMonths:[4,9], full, fullMonths:[7,12], overrides:{ 'YYYY-MM': { amount, note } } }
@@ -693,7 +711,7 @@ function monthSummary(ym){
   if(hasPlan(ym)){ const pt=planTotals(ym); const over=S.pockets.filter(p=>pocketSpent(p.id,ym)>alloc(p,ym)&&alloc(p,ym)>0).map(p=>esc(p.name));
     planLine=`<div class="item"><div class="body"><div class="t"><span>Gastos fijos pagados</span><span class="num">${eur(pt.paid)} <span class="muted" style="font-weight:400">/ ${eur(pt.fixed)}</span></span></div>${over.length?`<div class="s"><span class="red">Te pasaste en: ${over.join(', ')}</span></div>`:'<div class="s"><span>No te pasaste en ningún pocket</span></div>'}</div></div>`; }
   const d=prev.exp?Math.round((t.exp-prev.exp)/prev.exp*100):null;
-  return `<div class="card"><h2>Resumen de ${monthName(ym)} <small>${monthLabel(ym)}</small></h2>
+  return `<div class="card"><h2>Resumen de ${payCutoff()?'la nómina de ':''}${perName(ym)} <small>${perLabel(ym)}</small></h2>
     <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px">
       <div class="card stat" style="background:var(--card2);padding:14px 16px"><div class="lbl">Ingresos</div><div class="val num green" style="font-size:20px">${eur(t.inc,0)}</div></div>
       <div class="card stat" style="background:var(--card2);padding:14px 16px"><div class="lbl">Gastos</div><div class="val num" style="font-size:20px">${eur(t.exp,0)}</div></div>
@@ -701,7 +719,7 @@ function monthSummary(ym){
     </div>
     ${planLine}
     ${top?`<div class="item"><div class="body"><div class="t"><span>Donde más gastaste</span></div><div class="s" style="white-space:normal;display:block">${top}</div></div></div>`:''}
-    ${d!=null?`<div class="item"><div class="body"><div class="t"><span>Frente a ${monthName(addMonths(ym,-1))}</span><span class="${d<=0?'green':'red'}">${d>0?'+':''}${d} %</span></div></div></div>`:''}
+    ${d!=null?`<div class="item"><div class="body"><div class="t"><span>Frente a ${perName(addMonths(ym,-1))}</span><span class="${d<=0?'green':'red'}">${d>0?'+':''}${d} %</span></div></div></div>`:''}
   </div>`;
 }
 
@@ -891,8 +909,8 @@ const opts = (arr, sel, empty) => (empty!==undefined?`<option value="">${empty}<
 
 function openMovement(id, preset={}){
   const m = id ? S.movements.find(x=>x.id===id) : null;
-  const curM=ymOf(todayStr());
-  const defDate = ui.month===curM ? todayStr() : (ui.month<curM ? `${ui.month}-${pad(daysInMonth(ui.month))}` : `${ui.month}-01`);
+  const curM=currentPlanMonth();
+  const defDate = ui.month===curM ? todayStr() : payCutoff() ? (ui.month<curM ? new Date(new Date(periodStart(addMonths(ui.month,1))).getTime()-864e5).toISOString().slice(0,10) : periodStart(ui.month)) : (ui.month<curM ? `${ui.month}-${pad(daysInMonth(ui.month))}` : `${ui.month}-01`);
   const st = m ? {...m} : {type:'gasto', amount:'', categoryId:'', date:defDate, method:'Tarjeta', accountId:'', pocketId:'', note:'', ...preset};
   const body = `
     ${m ? '' : `<button type="button" class="scanbtn" onclick="App.scan()">${ic('scan')} Escanear ticket o factura</button>`}
@@ -933,9 +951,9 @@ function openMovement(id, preset={}){
       const before = rec.type==='gasto' ? snapshotLevels(ymOf(date)) : null;
       delete rec.aiNote;
       if(m && m.bankId && m.merchantKey && rec.categoryId!==m.categoryId){ (S.settings.merchantMap=S.settings.merchantMap||{})[m.merchantKey]=rec.categoryId; }
-      if(m){ Object.assign(m, rec); m.sample=false; } else { rec.id=uid(); rec._t=Date.now(); rec.sample=false; S.movements.push(rec); }
+      if(m){ Object.assign(m, rec); m.sample=false; if(m.bankId) m.edited=true; } else { rec.id=uid(); rec._t=Date.now(); rec.sample=false; S.movements.push(rec); }
       save(); closeModal();
-      if(ymOf(date)!==ui.month) ui.month=ymOf(date);
+      if(planMonthOf(date)!==ui.month) ui.month=planMonthOf(date);
       render();
       const warn = before ? newAlert(before, rec) : null;
       warn ? toast(warn.text, warn.l) : toast(m?'Cambios guardados':(rec.type==='gasto'?'Gasto añadido':'Ingreso añadido'),'ok');
@@ -1060,7 +1078,7 @@ function pocketDetail(id){
   const sp=pocketSpent(id,ui.month);
   modal(`${p.icon} ${esc(p.name)}`, `
     <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">${[['Asignado',alloc(p,ui.month)],['Gastado',sp],['Queda',alloc(p,ui.month)-sp]].map(([l,v])=>`<div class="card stat" style="padding:10px"><div class="lbl">${l}</div><div class="num ${v<0?'red':''}" style="font-weight:600;font-size:18px;margin-top:4px;font-family:var(--font-display)">${eur(v)}</div></div>`).join('')}</div>
-    <div class="card" style="padding:4px 14px">${ms.length?ms.map(m=>movItem(m).replace('class="item mov"','class="item mov" data-d')).join(''):'<div class="empty">Sin gastos en este pocket en '+monthLabel(ui.month)+'.</div>'}</div>
+    <div class="card" style="padding:4px 14px">${ms.length?ms.map(m=>movItem(m).replace('class="item mov"','class="item mov" data-d')).join(''):'<div class="empty">Sin gastos en este pocket en '+perLabel(ui.month)+'.</div>'}</div>
     <div class="row-btns" style="margin-top:12px"><button class="btn primary" style="flex:1" onclick="App.openMovement(null,{pocketId:'${p.id}',accountId:'revolut',categoryId:'${(p.categories||[])[0]||''}'})">+ Gasto en este pocket</button><button class="btn" onclick="App.editPocket('${p.id}')">Editar</button></div>`);
 }
 function editAccount(id){
@@ -1206,8 +1224,8 @@ function wipe(){ if(!confirm('¿Borrar TODOS tus datos? Esto no se puede deshace
 
 /* ============ Widget Scriptable ============ */
 function widgetCode(){
-  const ym=ymOf(todayStr());
-  const data={mes:monthLabel(ym), actualizado:new Date().toLocaleString('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}),
+  const ym=currentPlanMonth();
+  const data={mes:perLabel(ym), actualizado:new Date().toLocaleString('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}),
     pockets:S.pockets.map(p=>({n:p.name,i:p.icon,c:p.color,a:alloc(p,ym),g:pocketSpent(p.id,ym),b:pocketBalance(p),uid:p.bankUid||''}))};
   return `// Widget "Pockets" generado por Mis Finanzas
 // Vuelve a copiarlo desde la app para actualizar los datos.
@@ -1444,7 +1462,7 @@ async function api(path, opts={}){
   return j;
 }
 const pocketBalance = p => { const a = p.bankUid && (S.bank?.accounts||[]).find(x=>x.uid===p.bankUid); return a && a.balance && Number.isFinite(a.balance.amount) ? a.balance.amount : null; };
-function pocketLeft(p, ym){ const b = ym===ymOf(todayStr()) ? pocketBalance(p) : null; return b!=null ? b : round2(alloc(p,ym) - pocketSpent(p.id, ym)); }
+function pocketLeft(p, ym){ const b = ym===currentPlanMonth() ? pocketBalance(p) : null; return b!=null ? b : round2(alloc(p,ym) - pocketSpent(p.id, ym)); }
 
 const MCC = [[/^5411|^5499/, 'super'], [/^581[234]/, 'fuera'], [/^554[12]|^7523|^41(11|21|31)|^4784|^7538/, 'transporte'], [/^5912|^80(11|21|62)|^7997/, 'salud'], [/^56(51|61|91|99)|^5621|^5641/, 'ropa'], [/^4899|^581[5-8]/, 'subs'], [/^78(32|41)|^79(22|91|94|96)/, 'ocio'], [/^5200|^57(12|19)|^4900|^4814|^5251/, 'hogar'], [/^5947|^5992/, 'regalos']];
 const RULES = [
@@ -1490,9 +1508,9 @@ const isMainRevolut = a => !!a.iban || /^(eur( euro)?|euro|main|principal|cuenta
 function linkPockets(accounts){
   let created=0;
   accounts.filter(a=>/revolut/i.test(a.aspsp) && !isMainRevolut(a)).forEach((a,i)=>{
-    let p = S.pockets.find(x=>x.bankUid===a.uid) || S.pockets.find(x=>!x.bankUid && norm(x.name)===norm(a.name));
+    let p = S.pockets.find(x=>a.key && x.bankKey===a.key) || S.pockets.find(x=>x.bankUid===a.uid) || S.pockets.find(x=>norm(x.name)===norm(a.name));
     if(!p){ p = { id:uid(), name:a.name, icon:'👛', color:COLORS[(S.pockets.length+i)%COLORS.length], monthly:0, categories:[] }; S.pockets.push(p); created++; }
-    p.bankUid = a.uid; delete p.sample;
+    p.bankUid = a.uid; if(a.key) p.bankKey = a.key; delete p.sample;
   });
   return created;
 }
@@ -1528,6 +1546,42 @@ async function aiClassify(items){
   try{ const d = JSON.parse(response.content.filter(b=>b.type==='text').map(b=>b.text).join('')); const out={}; for(const x of d.items||[]) out[x.i]=x.categoria_id; return out; }catch(e){ return {}; }
 }
 
+
+// ---- Duplicados: el mismo movimiento puede llegar con otro identificador si el banco se reconectó ----
+function accountIdForTx(t){ const pk=S.pockets.find(p=>p.bankUid && p.bankUid===t.account_uid); return appAccountFor(t) || (pk && acc('revolut') ? 'revolut' : ''); }
+const txFp = t => [accountIdForTx(t), t.date, (+t.amount).toFixed(2), t.type, norm(t.description).slice(0,50)].join('|');
+const mvFp = m => [m.accountId||'', m.date, (+m.amount).toFixed(2), m.type, norm(m.bankDesc||m.note).slice(0,50)].join('|');
+function reconcileBank(all){
+  const live = all.filter(t=>t.date && t.amount>0);
+  // 1) Copias del mismo movimiento en dos conexiones del mismo banco: se queda una
+  const groups = {}; for(const t of live) (groups[txFp(t)] = groups[txFp(t)] || []).push(t);
+  const alias = new Set();
+  for(const g of Object.values(groups)){
+    const byAcc = {}; for(const t of g) (byAcc[t.account_key||t.account_uid] = byAcc[t.account_key||t.account_uid] || []).push(t);
+    const lists = Object.values(byAcc); if(lists.length<2) continue;
+    lists.sort((a,b)=>b.length-a.length); lists.slice(1).flat().forEach(t=>alias.add(t.id));
+  }
+  // 2) Movimientos de la app con un identificador antiguo: se reenlazan; los que sobran son duplicados y se quitan
+  const liveIds = new Set(live.filter(t=>!alias.has(t.id)).map(t=>t.id));
+  const seen = S.settings.bankSeen = S.settings.bankSeen || {};
+  alias.forEach(id=>{ seen[id]=1; });
+  const mGroups = {}; for(const m of S.movements) if(m.bankId) (mGroups[mvFp(m)] = mGroups[mvFp(m)] || []).push(m);
+  let removed=0; const drop=new Set();
+  for(const [fp, g] of Object.entries(groups)){
+    const ms = mGroups[fp]; if(!ms) continue;
+    const want = g.filter(t=>liveIds.has(t.id));
+    const held = new Set(ms.filter(m=>liveIds.has(m.bankId)).map(m=>m.bankId));
+    // primero los que tienen ticket o cambios tuyos
+    const stale = ms.filter(m=>!liveIds.has(m.bankId)).sort((a,b)=>(b.receipt?2:0)+(b.edited?1:0)-((a.receipt?2:0)+(a.edited?1:0)));
+    for(const t of want){ if(held.has(t.id)) continue; const m=stale.shift(); if(!m) break; m.bankId=t.id; m.bankAccount=t.account_uid; m.bankPending = t.status && t.status!=='BOOK'; seen[t.id]=1; held.add(t.id); }
+    for(const m of stale){ if(m.receipt){ m.bankId=''; m.bankPending=false; } else { drop.add(m.id); removed++; } }
+    // dos movimientos de la app con el mismo identificador
+    const byId = {}; for(const m of ms) if(!drop.has(m.id) && m.bankId){ if(byId[m.bankId]){ drop.add(m.id); removed++; } else byId[m.bankId]=m; }
+  }
+  if(drop.size) S.movements = S.movements.filter(m=>!drop.has(m.id));
+  return { alias, removed };
+}
+
 let syncing = false;
 async function bankSync({ fromBanks=false, quiet=false }={}){
   if(!syncOn() || syncing) return;
@@ -1547,27 +1601,18 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     const from = S.settings.syncFrom || todayStr();
     const txs = (data.transactions||[]).filter(t=>t.date && t.date>=from && t.amount>0);
     const internal = markInternal(data.transactions||[]);
-    // Reparto del mes: lo que entra (neto) en cada pocket por traspasos, y lo que mandas a Trade Republic
-    const ba={}, bs={}, fromYm=planMonthOf(from);
-    for(const t of data.transactions||[]){
-      if(!internal.has(t.id) || !t.date) continue; const ym=planMonthOf(t.date); if(ym<fromYm) continue;
-      const pk=S.pockets.find(p=>p.bankUid && p.bankUid===t.account_uid);
-      if(pk){ ba[ym]=ba[ym]||{}; ba[ym][pk.id]=round2((ba[ym][pk.id]||0)+(t.type==='ingreso'?t.amount:-t.amount)); }
-      const toTR = /trade republic/.test(norm(t.counterparty+' '+t.description)) && !/trade/.test(norm(t.aspsp));
-      if(toTR) bs[ym]=round2((bs[ym]||0)+(t.type==='gasto'?t.amount:-t.amount));
-    }
-    S.bankAlloc=ba; S.bankSavings=bs;
+    const rec = reconcileBank(data.transactions||[]);
     const seen = S.settings.bankSeen = S.settings.bankSeen || {};
     const byBankId = new Map(S.movements.filter(m=>m.bankId).map(m=>[m.bankId,m]));
     const fresh=[]; let linked=0, updated=0;
     for(const t of txs){
-      if(internal.has(t.id)) continue;
+      if(internal.has(t.id) || rec.alias.has(t.id)) continue;
       const pending = t.status && t.status!=='BOOK';
       const ex = byBankId.get(t.id);
       if(ex){ if(ex.bankPending && !pending){ ex.bankPending=false; updated++; } continue; }
       if(seen[t.id]) continue; // borrado por ti: no se vuelve a importar
       const pk = S.pockets.find(p=>p.bankUid && p.bankUid===t.account_uid);
-      const accountId = appAccountFor(t) || (pk && acc('revolut') ? 'revolut' : '');
+      const accountId = accountIdForTx(t);
       const near = (m, days) => Math.abs(new Date(m.date)-new Date(t.date)) <= days*864e5;
       // 1) movimiento pendiente que ahora llega confirmado (cambia de id)
       let match = S.movements.find(m=>m.bankPending && m.bankAccount===t.account_uid && m.type===t.type && Math.abs(m.amount-t.amount)<0.01 && near(m,4));
@@ -1583,6 +1628,17 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
       if(!g.sure) fresh.push({ mv, t:{...t, _pocket: pk?pk.name:''} });
       S.movements.push(mv); seen[t.id]=1;
     }
+    // (después de importar, para que ya esté la nómina y se sepa dónde empieza cada periodo)
+    // Reparto del mes: lo que entra (neto) en cada pocket por traspasos, y lo que mandas a Trade Republic
+    const ba={}, bs={}, fromYm=planMonthOf(from);
+    for(const t of data.transactions||[]){
+      if(!internal.has(t.id) || !t.date) continue; const ym=planMonthOf(t.date); if(ym<fromYm) continue;
+      const pk=S.pockets.find(p=>p.bankUid && p.bankUid===t.account_uid);
+      if(pk){ ba[ym]=ba[ym]||{}; ba[ym][pk.id]=round2((ba[ym][pk.id]||0)+(t.type==='ingreso'?t.amount:-t.amount)); }
+      const toTR = /trade republic/.test(norm(t.counterparty+' '+t.description)) && !/trade/.test(norm(t.aspsp));
+      if(toTR) bs[ym]=round2((bs[ym]||0)+(t.type==='gasto'?t.amount:-t.amount));
+    }
+    S.bankAlloc=ba; S.bankSavings=bs;
     const added = txs.filter(t=>byBankId.get(t.id)===undefined && seen[t.id]).length;
     if(fresh.length){
       try{ const res = await aiClassify(fresh.slice(0,80).map(x=>x.t)); fresh.slice(0,80).forEach((x,i)=>{ const c=res[i] && S.categories.find(cc=>cc.id===res[i] && cc.type===x.mv.type); if(c) x.mv.categoryId=c.id; }); }
@@ -1591,7 +1647,8 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     S.settings.lastBankImport = new Date().toISOString();
     save(); render();
     const n = S.movements.filter(m=>m.bankId && seen[m.bankId] && m._t && Date.now()-m._t<60000).length;
-    if(!quiet || n) toast(n ? `${n} movimiento${n>1?'s':''} nuevo${n>1?'s':''} del banco${linked?` · ${linked} enlazado${linked>1?'s':''}`:''}` : (linked ? `${linked} movimiento${linked>1?'s':''} enlazado${linked>1?'s':''} con el banco` : 'Todo al día'), 'ok');
+    if(rec.removed){ toast(`He quitado ${rec.removed} movimiento${rec.removed>1?'s':''} duplicado${rec.removed>1?'s':''}`,'ok'); }
+    else if(!quiet || n) toast(n ? `${n} movimiento${n>1?'s':''} nuevo${n>1?'s':''} del banco${linked?` · ${linked} enlazado${linked>1?'s':''}`:''}` : (linked ? `${linked} movimiento${linked>1?'s':''} enlazado${linked>1?'s':''} con el banco` : 'Todo al día'), 'ok');
     if(newPockets && !quiet) setTimeout(()=>toast(`He creado ${newPockets} pocket${newPockets>1?'s':''} a partir de Revolut. Ponles lo que les asignas al mes.`), 2600);
   }catch(e){ console.warn(e); if(!quiet) toast(e.message || 'No se pudo sincronizar','over'); }
   finally{ syncing=false; }
@@ -1600,7 +1657,7 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
 // ---- Copia en la nube (mismo estado en móvil y ordenador) + datos para el widget ----
 let pushT=null, pulling=false;
 function cleanState(){ const c=JSON.parse(JSON.stringify(S)); delete c.settings.apiKey; delete c.settings.syncPass; delete c.settings.syncUrl; return c; }
-function widgetPayload(){ const ym=ymOf(todayStr()); return { mes:monthLabel(ym), pockets:S.pockets.map(p=>({ n:p.name, i:p.icon, c:p.color, a:alloc(p,ym), g:pocketSpent(p.id,ym), uid:p.bankUid||'' })) }; }
+function widgetPayload(){ const ym=currentPlanMonth(); return { mes:perLabel(ym), pockets:S.pockets.map(p=>({ n:p.name, i:p.icon, c:p.color, a:alloc(p,ym), g:pocketSpent(p.id,ym), uid:p.bankUid||'' })) }; }
 function schedulePush(){ if(!syncOn() || pulling) return; clearTimeout(pushT); pushT=setTimeout(pushState, 2500); }
 async function pushState(){
   if(!syncOn()) return;
@@ -1646,7 +1703,7 @@ function makeIcon(){
 
 /* ============ API pública ============ */
 window.App = {
-  go(t){ if(t==='plan' && ui.tab!=='plan' && ui.month===ymOf(todayStr())) ui.month=nextPlanMonth(); if(t!=='plan' && ui.tab==='plan' && ui.month>ymOf(todayStr())) ui.month=ymOf(todayStr()); ui.tab=t; render(); window.scrollTo({top:0}); },
+  go(t){ if(t==='plan' && ui.tab!=='plan' && ui.month===currentPlanMonth()) ui.month=nextPlanMonth(); if(t!=='plan' && ui.tab==='plan' && ui.month>currentPlanMonth()) ui.month=currentPlanMonth(); ui.tab=t; render(); window.scrollTo({top:0}); },
   setPayDay(d){ S.settings.payDay=d; save(); if(ui.tab==='plan') ui.month=nextPlanMonth(); closeModal(); render(); bankSync({quiet:true}); toast('Día de cobro guardado','ok'); },
   editPayDay(){ const d=S.settings.payDay; modal('¿Cuándo cobras?', `<div class="field"><label>Día de cobro de la nómina</label><select class="select" id="pdSel"><option value="last" ${d==='last'?'selected':''}>Último día del mes</option>${[25,26,27,28,29,30].map(n=>`<option value="${n}" ${d===n?'selected':''}>Día ${n}</option>`).join('')}${[1,2,3,4,5].map(n=>`<option value="${n}" ${d===n?'selected':''}>Día ${n} (principios de mes)</option>`).join('')}</select></div><p class="hint">Si cobras a final de mes, la nómina y los traspasos a pockets de esos días cuentan para el plan del mes siguiente.</p><button class="btn primary block" style="margin-top:12px" onclick="const v=document.getElementById('pdSel').value; App.setPayDay(v==='last'?'last':+v)">Guardar</button>`); },
   month(d){ ui.month=addMonths(ui.month,d); render(); },
@@ -1667,6 +1724,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
 const fresh = load();
 makeIcon();
 if(fresh){ loadSample(); } else { runRecurring(); render(); }
+ui.month=currentPlanMonth(); render();
 if(syncOn()){ pullState().then(()=>bankSync({quiet:true})); }
 // Si la app queda abierta y cambia el día, apunta los recurrentes
 document.addEventListener('visibilitychange',()=>{ if(document.hidden) return; if(runRecurring()) render(); if(syncOn() && Date.now()-new Date(S.bank?.fetched||0) > 20*60000) pullState().then(()=>bankSync({quiet:true})); });

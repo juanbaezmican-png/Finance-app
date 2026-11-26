@@ -13,10 +13,11 @@
 // KV:
 //   DB              almacenamiento de sesiones, movimientos y estado
 
-const VERSION = '2026-11-25.1';
+const VERSION = '2026-11-26.1';
+const SCHEMA = 2; // 2: movimientos identificados por cuenta estable (IBAN), sin duplicados entre conexiones
 const EB_API = 'https://api.enablebanking.com';
 const CONSENT_DAYS = 180;
-const FIRST_SYNC_DAYS = 30;
+const FIRST_SYNC_DAYS = 90;
 
 /* ----------------------------- utilidades ----------------------------- */
 const enc = new TextEncoder();
@@ -98,6 +99,11 @@ const putJSON = (env, key, val) => env.DB.put(key, JSON.stringify(val));
 // sessions: { [session_id]: { aspsp, country, valid_until, accounts:[{uid,name,iban,currency}], created, error } }
 
 /* ------------------------------ normalización ------------------------------ */
+// Identificador estable de una cuenta: el IBAN (o banco + nombre). El uid de Enable Banking cambia cada vez que reconectas el banco.
+function accountKey(acc, aspsp) {
+  const iban = (acc.iban || '').replace(/\s/g, '').toUpperCase();
+  return iban ? `IBAN:${iban}` : `ACC:${String(aspsp || '').toLowerCase().replace(/^banco\s+/, '').trim()}|${String(acc.name || '').toLowerCase().trim()}`;
+}
 function normalizeTx(t, account, ownIbans) {
   const amt = Math.abs(parseFloat(t.transaction_amount?.amount ?? t.amount ?? 0)) || 0;
   const credit = (t.credit_debit_indicator || '').toUpperCase() === 'CRDT';
@@ -108,9 +114,11 @@ function normalizeTx(t, account, ownIbans) {
   const desc = [counter.name, remit, t.bank_transaction_code?.description, t.note].filter(Boolean).join(' · ').replace(/\s+/g, ' ').trim();
   // Fecha de la compra (transaction_date) si el banco la da; si no, la de contabilización
   const date = t.transaction_date || t.booking_date || t.value_date || '';
-  const idBase = t.transaction_id || t.entry_reference || `${date}|${amt}|${desc}`;
+  const key = accountKey(account, account.aspsp);
+  const idBase = t.transaction_id || t.entry_reference || `${t.booking_date || t.value_date || t.transaction_date || ''}|${amt}|${credit ? 'C' : 'D'}|${desc}`;
   return {
-    id: `${account.uid}:${idBase}`,
+    id: `${key}:${idBase}`,
+    account_key: key,
     account_uid: account.uid,
     account_name: account.name,
     aspsp: account.aspsp,
@@ -131,13 +139,20 @@ async function syncAll(env, { force = false } = {}) {
   const sessions = await getJSON(env, 'sessions', {});
   const store = await getJSON(env, 'transactions', {});        // { id: tx }
   const balances = await getJSON(env, 'balances', {});         // { uid: {amount,currency,date} }
-  const meta = await getJSON(env, 'meta', {});
+  let meta = await getJSON(env, 'meta', {});
+  // Cambio de formato: se vacía y se vuelve a descargar todo (así desaparecen los duplicados antiguos)
+  if (meta.schema !== SCHEMA) { for (const k of Object.keys(store)) delete store[k]; meta = { schema: SCHEMA }; }
   const ownIbans = new Set(Object.values(sessions).flatMap(s => s.accounts.map(a => (a.iban || '').replace(/\s/g, '').toUpperCase())).filter(Boolean));
   const log = [];
   let added = 0;
-  for (const [sid, s] of Object.entries(sessions)) {
+  const done = new Set();
+  const ordered = Object.entries(sessions).sort((a, b) => String(b[1].created || '').localeCompare(String(a[1].created || '')));
+  for (const [sid, s] of ordered) {
     if (s.valid_until && new Date(s.valid_until) < new Date()) { s.error = 'Permiso caducado: vuelve a conectar este banco'; continue; }
     for (const acc of s.accounts) {
+      const key = accountKey(acc, s.aspsp);
+      if (done.has(key)) continue; // la misma cuenta conectada dos veces: solo se lee una
+      done.add(key);
       try {
         const last = meta[`last_${acc.uid}`];
         const from = new Date(last ? new Date(last).getTime() - 5 * 864e5 : Date.now() - FIRST_SYNC_DAYS * 864e5);
@@ -240,7 +255,8 @@ async function callback(env, url) {
   if (!accounts.length) { const ss = await getJSON(env, 'sessions', {}); for (const [k, v] of Object.entries(ss)) if (v.aspsp === saved.name && !v.accounts.length) delete ss[k]; await putJSON(env, 'sessions', ss); return page('Sin cuentas', `<h1 class="err">${esc(saved.name)}: 0 cuentas</h1><p>El banco ha dado permiso, pero Enable Banking no devuelve ninguna cuenta. En el modo gratuito solo se pueden leer las cuentas enlazadas antes desde el panel de Enable Banking (API applications → tu aplicación → enlazar cuentas). Enlaza allí ${esc(saved.name)} y después vuelve a conectarlo desde esta página.</p>`); }
   const sessions = await getJSON(env, 'sessions', {});
   // Sustituye una sesión anterior del mismo banco (renovación)
-  for (const [k, v] of Object.entries(sessions)) if (v.aspsp === saved.name) delete sessions[k];
+  const newKeys = new Set(accounts.map(a => accountKey(a, saved.name)));
+  for (const [k, v] of Object.entries(sessions)) if (v.aspsp === saved.name || (v.accounts || []).some(a => newKeys.has(accountKey(a, v.aspsp)))) delete sessions[k];
   sessions[s.session_id] = { aspsp: saved.name, country: saved.country, valid_until: s.access?.valid_until || '', accounts, created: new Date().toISOString(), error: null };
   await putJSON(env, 'sessions', sessions);
   let res; try { res = await syncAll(env); } catch (e) { res = { added: 0, log: [e.message] }; }
@@ -257,7 +273,7 @@ function internalIds(txs) {
   for (const t of txs) (by[t.amount.toFixed(2)] = by[t.amount.toFixed(2)] || []).push(t);
   for (const list of Object.values(by)) for (const a of list) {
     if (out.has(a.id)) continue;
-    const b = list.find(x => x.id !== a.id && !out.has(x.id) && x.account_uid !== a.account_uid && x.type !== a.type && Math.abs(new Date(x.date) - new Date(a.date)) <= 2 * 864e5);
+    const b = list.find(x => x.id !== a.id && !out.has(x.id) && (x.account_key || x.account_uid) !== (a.account_key || a.account_uid) && x.type !== a.type && Math.abs(new Date(x.date) - new Date(a.date)) <= 2 * 864e5);
     if (b) { out.add(a.id); out.add(b.id); }
   }
   for (const t of txs) if (/trade ?republic/i.test(`${t.counterparty} ${t.description}`) && !/trade ?republic/i.test(t.aspsp || '')) out.add(t.id);
@@ -287,8 +303,12 @@ async function apiToday(env, url) {
 
 async function apiData(env, url) {
   const since = url.searchParams.get('since') || '';
+  if ((await getJSON(env, 'meta', {})).schema !== SCHEMA) { try { await syncAll(env); } catch (e) { console.warn('rebuild', e.message); } }
   const [sessions, store, balances, meta] = await Promise.all([getJSON(env, 'sessions', {}), getJSON(env, 'transactions', {}), getJSON(env, 'balances', {}), getJSON(env, 'meta', {})]);
-  const accounts = Object.entries(sessions).flatMap(([sid, s]) => s.accounts.map(a => ({ ...a, aspsp: s.aspsp, valid_until: s.valid_until, error: s.error, balance: balances[a.uid] || null })));
+  const seenKeys = new Set();
+  const accounts = Object.entries(sessions).sort((a, b) => String(b[1].created || '').localeCompare(String(a[1].created || '')))
+    .flatMap(([sid, s]) => s.accounts.map(a => ({ ...a, key: accountKey(a, s.aspsp), aspsp: s.aspsp, valid_until: s.valid_until, error: s.error, balance: balances[a.uid] || null })))
+    .filter(a => !seenKeys.has(a.key) && seenKeys.add(a.key));
   const transactions = Object.values(store).filter(t => !since || t.date >= since).sort((a, b) => b.date.localeCompare(a.date));
   return json({ accounts, transactions, last_sync: meta.last_sync || null, log: meta.last_log || [] });
 }

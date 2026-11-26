@@ -240,6 +240,7 @@ textarea.input{border-radius:16px}
 
 /* ============ Utilidades ============ */
 const KEY = 'misfinanzas_v1';
+const APP_VERSION = '2026-11-26.4';
 const $ = s => document.querySelector(s);
 const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
 const pad = n => String(n).padStart(2,'0');
@@ -889,6 +890,12 @@ function viewSettings(){
       <div class="field"><label>Importar movimientos desde</label><input class="input" id="syncFrom" type="date" value="${esc(S.settings.syncFrom||todayStr())}"></div>
       <div class="row-btns"><button class="btn primary" onclick="App.saveSync()">${syncOn()?'Guardar':'Conectar'}</button>${syncOn()?`<button class="btn" onclick="App.bankSync({fromBanks:true})">Sincronizar ahora</button><a class="btn ghost" href="${esc(S.settings.syncUrl)}/connect?t=${encodeURIComponent(S.settings.syncPass)}" target="_blank" rel="noopener">Gestionar bancos</a>`:''}</div>
       ${syncOn()&&S.bank?`<p class="hint">Última consulta a los bancos: ${S.bank.last_sync?new Date(S.bank.last_sync).toLocaleString('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—'} · ${S.bank.accounts.length} cuenta(s)</p>${(S.bank.accounts||[]).filter(a=>a.error).map(a=>`<p class="hint red">${esc(a.aspsp)}: ${esc(a.error)}</p>`).join('')}`:''}
+      ${syncOn()&&S.bank&&S.bank.all?`<div class="card" style="background:var(--card2);padding:14px 16px;margin-top:12px"><b>Cuentas conectadas</b>
+        ${S.bank.all.map(a=>{ const used=(S.bank.accounts||[]).some(x=>x.uid===a.uid), ign=(S.settings.ignoredAccounts||[]).includes(a.uid);
+          return `<div class="item pi"><div class="body"><div class="t"><span>${esc(a.aspsp)} · ${esc(a.name)}${a.iban?' · '+esc(a.iban.replace(/\s/g,'').slice(-4)):''}</span><span class="num">${a.balance&&Number.isFinite(a.balance.amount)?eur(a.balance.amount):'—'}</span></div>
+            <div class="s"><span>${ign?'<span class="red">Ignorada por ti</span>':used?'<span class="green">En uso</span>':'Ignorada (conexión repetida)'} · saldo del ${a.balance&&a.balance.date?new Date(a.balance.date).toLocaleString('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—'} · permiso hasta ${a.valid_until?shortDate(a.valid_until.slice(0,10)):'—'}</span></div></div>
+            <button class="btn sm ghost" onclick="App.toggleAccount('${esc(a.uid)}')">${ign?'Usar':'Ignorar'}</button></div>`; }).join('')}
+        </div>`:''}
       <p class="hint">Los traspasos entre tus cuentas y pockets no cuentan como gasto. Si cambias la categoría de un movimiento del banco, la app lo recordará para ese comercio.</p>
     </div>
     <div class="card"><h2>Lectura de tickets con IA</h2>
@@ -913,7 +920,7 @@ function viewSettings(){
       <p class="hint" style="margin-top:0">Tus datos se guardan en este navegador. Descarga una copia de vez en cuando (o para pasar los datos del ordenador al móvil).</p>
       <div class="row-btns" style="margin-top:10px"><button class="btn" onclick="App.backup()">${ic('down')} Exportar copia</button><button class="btn" onclick="document.getElementById('importFile').click()">${ic('up')} Importar copia</button></div>
     </div>
-    <div class="card"><h2>Datos</h2>
+    <div class="card"><h2>Datos</h2><p class="hint" style="margin-top:-8px">Versión de la app: ${APP_VERSION}</p>
       <div class="row-btns">${S.settings.demo?`<button class="btn" onclick="App.clearSample()">Borrar datos de ejemplo</button>`:`<button class="btn" onclick="App.loadSample()">Cargar datos de ejemplo</button>`}<button class="btn danger" onclick="App.wipe()">Borrar todo</button></div>
       <p class="hint">“Borrar datos de ejemplo” deja tus categorías, cuentas y lo que hayas añadido tú.</p>
     </div>
@@ -1664,7 +1671,9 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     if(fromBanks){ if(!quiet) toast('Consultando tus bancos…'); await api('/api/sync', { method:'POST' }); }
     const curBefore = currentPlanMonth(), nextBefore = nextPlanMonth();
     const data = await api('/api/data');
-    S.bank = { accounts:liveAccounts(data.accounts), last_sync:data.last_sync, fetched:new Date().toISOString(), log:data.log||[] };
+    const ignored = new Set(S.settings.ignoredAccounts||[]);
+    S.bank = { all:(data.accounts||[]).map(a=>({ uid:a.uid, aspsp:a.aspsp, name:a.name, iban:a.iban||'', valid_until:a.valid_until||'', balance:a.balance||null, error:a.error||'' })),
+               accounts:liveAccounts((data.accounts||[]).filter(a=>!ignored.has(a.uid))), last_sync:data.last_sync, fetched:new Date().toISOString(), log:data.log||[] };
     // Crea en la app una cuenta por cada banco conectado que no tenga ya
     for(const aspsp of [...new Set(S.bank.accounts.map(a=>a.aspsp).filter(Boolean))]){
       const ex = appAccountFor({aspsp});
@@ -1675,6 +1684,7 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     const newPockets = linkPockets(S.bank.accounts);
     const from = S.settings.syncFrom || todayStr();
     const txs = (data.transactions||[]).filter(t=>t.date && t.date>=from && t.amount>0);
+    data.transactions = (data.transactions||[]).filter(t=>!ignored.has(t.account_uid)); // cuentas que has decidido ignorar
     const rec = reconcileBank(data.transactions||[]);
     const internal = markInternal((data.transactions||[]).filter(t=>!rec.alias.has(t.id)));
     // los movimientos ya importados que resultan ser traspasos entre tus cuentas se quitan
@@ -1793,6 +1803,7 @@ window.App = {
   clearFilters(){ ui.f={q:'',cat:'',type:'',method:'',where:''}; render(); },
   openMovement, delMovement, editCategory, editBudget, editRecurring, editPocket, pocketDetail, editAccount, editGoal, goalDetail,
   exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan, saveSync, bankSync, dailyScript,
+  toggleAccount(uid){ const l=S.settings.ignoredAccounts=S.settings.ignoredAccounts||[]; const i=l.indexOf(uid); i>=0?l.splice(i,1):l.push(uid); save(); toast(i>=0?'Cuenta en uso':'Cuenta ignorada','ok'); bankSync({quiet:true}).then(render); },
   markTransfer(id){ if(!confirm('¿Es un traspaso entre tus propias cuentas? Se quitará y no contará ni como gasto ni como ingreso.')) return; S.movements=S.movements.filter(m=>m.id!==id); save(); closeModal(); render(); toast('Quitado: no cuenta como gasto ni ingreso','ok'); }, planSet, planItemMenu, planExtra, editForecast,
   fcMonths(n){ ui.fcN=n; render(); },
   saveKey(){ const v=(document.getElementById('apiKey')?.value||'').trim(); if(v && !/^sk-ant-/.test(v)){ toast('La clave debería empezar por sk-ant-','over'); return; } S.settings.apiKey=v; save(); render(); toast(v?'Clave guardada':'Clave eliminada','ok'); },

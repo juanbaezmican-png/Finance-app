@@ -372,7 +372,13 @@ function movsOf(ym){
 function totals(ym){ let inc=0,exp=0; for(const m of movsOf(ym)){ if(m.type==='ingreso') inc+=m.amount; else exp+=m.amount; } return {inc:round2(inc),exp:round2(exp),left:round2(inc-exp)}; }
 function expByCat(ym){ const o={}; for(const m of movsOf(ym)) if(m.type==='gasto') o[m.categoryId]=(o[m.categoryId]||0)+m.amount; return o; }
 // Lo asignado a un pocket en un mes: lo que has metido en él ese mes según Revolut; si no hay traspasos, el valor por defecto
-function alloc(p, ym){ const b = S.bankAlloc && S.bankAlloc[ym] && S.bankAlloc[ym][p.id]; if(b>0) return round2(b); const pl = S.plans && S.plans[ym] && S.plans[ym].pockets[p.id]; return round2(pl!=null ? pl : (+p.monthly||0)); }
+function alloc(p, ym){
+  const pl = S.plans && S.plans[ym] && S.plans[ym].pockets && S.plans[ym].pockets[p.id];
+  if(pl!=null) return round2(pl);
+  const b = S.bankAlloc && S.bankAlloc[ym] && S.bankAlloc[ym][p.id]; if(b>0) return round2(b);
+  return round2(plannedPocket(p, ym));
+}
+const metidoReal = (p, ym) => round2((S.bankAlloc && S.bankAlloc[ym] && S.bankAlloc[ym][p.id]) || 0);
 const allocFromBank = (p, ym) => !!(S.bankAlloc && S.bankAlloc[ym] && S.bankAlloc[ym][p.id]>0);
 function pocketSpent(pid, ym){ return round2(movsOf(ym).filter(m=>m.type==='gasto'&&m.pocketId===pid).reduce((a,m)=>a+m.amount,0)); }
 function level(spent, limit){ if(!limit) return ''; const r=spent/limit; return r>1 ? 'over' : r>=0.8 ? 'warn' : ''; }
@@ -527,12 +533,12 @@ function viewPockets(){
   return `${topbar('Pockets')}${demoBanner()}
   <div class="grid g3">
     <div class="card stat hero"><div class="lbl">Queda en pockets</div><div class="val num ${leftAll<0?'red':''}">${eur(leftAll)}</div><div class="sub">${S.pockets.some(p=>pocketBalance(p)!=null)?'saldo real de Revolut':`de ${eur(total)} repartidos este mes`}</div></div>
-    <div class="card stat"><div class="lbl">Asignado este mes</div><div class="val num">${eur(total)}</div><div class="sub">${S.pockets.some(p=>allocFromBank(p,ui.month))?'según tus traspasos en Revolut':`${S.pockets.length} pockets`}</div></div>
+    <div class="card stat"><div class="lbl">Asignado en el Plan</div><div class="val num">${eur(total)}</div><div class="sub">${(()=>{ const m=round2(S.pockets.reduce((a,p)=>a+metidoReal(p,ui.month),0)); return m ? `metido en Revolut ${eur(m)}${Math.abs(m-total)>0.5?` · ${m<total?'faltan '+eur(total-m):'de más '+eur(m-total)}`:' ✓'}` : `${S.pockets.length} pockets`; })()}</div></div>
     <div class="card stat"><div class="lbl">Gastado</div><div class="val num">${eur(spent)}</div><div class="sub">${total?pct(spent/total*100)+' del total':'—'}</div></div>
   </div>
   <div class="card section"><h2>Pockets de Revolut <button class="btn sm" onclick="App.editPocket()">+ Nuevo pocket</button></h2>
   ${S.pockets.length?`<div class="pockets">${S.pockets.map(p=>{ const sp=pocketSpent(p.id,ui.month), l=level(sp,alloc(p,ui.month)), left=pocketLeft(p,ui.month), real=ui.month===currentPlanMonth()&&pocketBalance(p)!=null;
-    return `<div class="pocket" onclick="App.pocketDetail('${p.id}')"><div class="top"><span>${p.icon}</span><span>${esc(p.name)}</span>${l?`<span class="tag ${l}">${l==='over'?'Pasado':'Casi vacío'}</span>`:''}</div><div class="left num ${left<0?'red':''}">${eur(left)}</div><div class="of">${real?'en Revolut':`quedan de ${eur(alloc(p,ui.month))}`} · gastado ${eur(sp)}${alloc(p,ui.month)?` · metido ${eur(alloc(p,ui.month),0)}`:''}</div><div class="prog ${l}"><i style="width:${Math.min(alloc(p,ui.month)?sp/alloc(p,ui.month)*100:0,100)}%;${l?'':`background:${p.color}`}"></i></div></div>`; }).join('')}</div><p class="hint">Cada pocket tiene su tarjeta. Al apuntar un gasto elige el pocket y se descontará de aquí. Toca un pocket para ver sus movimientos o editarlo.</p>`
+    return `<div class="pocket" onclick="App.pocketDetail('${p.id}')"><div class="top"><span>${p.icon}</span><span>${esc(p.name)}</span>${l?`<span class="tag ${l}">${l==='over'?'Pasado':'Casi vacío'}</span>`:''}</div><div class="left num ${left<0?'red':''}">${eur(left)}</div><div class="of">${real?'saldo en Revolut':'quedan'} · plan ${eur(alloc(p,ui.month),0)}${metidoReal(p,ui.month)?` · metido ${eur(metidoReal(p,ui.month),0)}`:''} · gastado ${eur(sp,0)}</div><div class="prog ${l}"><i style="width:${Math.min(alloc(p,ui.month)?sp/alloc(p,ui.month)*100:0,100)}%;${l?'':`background:${p.color}`}"></i></div></div>`; }).join('')}</div><p class="hint">Cada pocket tiene su tarjeta. Al apuntar un gasto elige el pocket y se descontará de aquí. Toca un pocket para ver sus movimientos o editarlo.</p>`
   :`<div class="empty"><span class="big">${ic('wallet')}</span>Aún no tienes pockets. Crea uno por cada pocket de Revolut (p. ej. Súper, Ocio, Comer fuera) con lo que le asignas al mes.<br><br><button class="btn primary" onclick="App.editPocket()">+ Crear pocket</button></div>`}</div>
   <div class="card section"><h2>Mis cuentas <small>${perLabel(ui.month)}</small></h2><div class="accounts">${S.accounts.map(a=>{ const f=accFlows(a.id);
     const bal = (S.bank?.accounts||[]).filter(x=>appAccountFor({aspsp:x.aspsp})===a.id && x.balance && Number.isFinite(x.balance.amount)).reduce((s,x)=>s+x.balance.amount,0);
@@ -1636,10 +1642,16 @@ function liveAccounts(list){
   for(const a of list||[]) (byBank[bankBase(a.aspsp)] = byBank[bankBase(a.aspsp)] || []).push(a);
   const out = [];
   for(const accs of Object.values(byBank)){
-    const valid = accs.filter(a=>!a.valid_until || new Date(a.valid_until)>now);
-    const pool = valid.length ? valid : accs;
-    const best = pool.reduce((m,a)=>(a.valid_until||'')>m ? (a.valid_until||'') : m, '');
-    out.push(...pool.filter(a=>(a.valid_until||'')===best));
+    // cada conexión (sesión) se reconoce por su fecha de caducidad
+    const sess = {};
+    for(const a of accs) (sess[a.valid_until||'-'] = sess[a.valid_until||'-'] || []).push(a);
+    const score = g => { const valid = g.some(a=>!a.valid_until || new Date(a.valid_until)>now) ? 1 : 0;
+      const fresh = g.reduce((m,a)=>a.balance && a.balance.date && a.balance.date>m ? a.balance.date : m, '');
+      return [valid, fresh, g[0].valid_until||'']; };
+    const best = Object.values(sess).sort((x,y)=>{ const a=score(x), b=score(y); return (b[0]-a[0]) || b[1].localeCompare(a[1]) || b[2].localeCompare(a[2]); })[0];
+    // dentro de la conexión elegida, una cuenta por IBAN (o nombre)
+    const seenK = new Set();
+    for(const a of best){ const k=(a.iban||'').replace(/\s/g,'').toUpperCase() || norm(a.name); if(seenK.has(k)) continue; seenK.add(k); out.push(a); }
   }
   return out;
 }
@@ -1650,6 +1662,7 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
   syncing = true;
   try{
     if(fromBanks){ if(!quiet) toast('Consultando tus bancos…'); await api('/api/sync', { method:'POST' }); }
+    const curBefore = currentPlanMonth(), nextBefore = nextPlanMonth();
     const data = await api('/api/data');
     S.bank = { accounts:liveAccounts(data.accounts), last_sync:data.last_sync, fetched:new Date().toISOString(), log:data.log||[] };
     // Crea en la app una cuenta por cada banco conectado que no tenga ya
@@ -1709,6 +1722,10 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
       catch(e){ console.warn('IA', e); }
     }
     S.settings.lastBankImport = new Date().toISOString();
+    // si ha entrado la nómina, la pantalla pasa al periodo nuevo
+    _ps = { key:'', map:{} };
+    if(ui.month===curBefore && currentPlanMonth()!==curBefore) ui.month=currentPlanMonth();
+    else if(ui.tab==='plan' && ui.month===nextBefore && nextPlanMonth()!==nextBefore) ui.month=nextPlanMonth();
     save(); render();
     const n = S.movements.filter(m=>m.bankId && seen[m.bankId] && m._t && Date.now()-m._t<60000).length;
     if(rec.removed){ toast(`He quitado ${rec.removed} movimiento${rec.removed>1?'s':''} duplicado${rec.removed>1?'s':''}`,'ok'); }

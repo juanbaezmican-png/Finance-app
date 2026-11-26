@@ -1603,6 +1603,20 @@ function reconcileBank(all){
   return { alias, removed };
 }
 
+// De cada banco, solo la conexión vigente: las caducadas (p. ej. la del panel de Enable Banking, que dura 1 día) se ignoran
+function liveAccounts(list){
+  const now = new Date(), byBank = {};
+  for(const a of list||[]) (byBank[bankBase(a.aspsp)] = byBank[bankBase(a.aspsp)] || []).push(a);
+  const out = [];
+  for(const accs of Object.values(byBank)){
+    const valid = accs.filter(a=>!a.valid_until || new Date(a.valid_until)>now);
+    const pool = valid.length ? valid : accs;
+    const best = pool.reduce((m,a)=>(a.valid_until||'')>m ? (a.valid_until||'') : m, '');
+    out.push(...pool.filter(a=>(a.valid_until||'')===best));
+  }
+  return out;
+}
+
 let syncing = false;
 async function bankSync({ fromBanks=false, quiet=false }={}){
   if(!syncOn() || syncing) return;
@@ -1610,7 +1624,7 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
   try{
     if(fromBanks){ if(!quiet) toast('Consultando tus bancos…'); await api('/api/sync', { method:'POST' }); }
     const data = await api('/api/data');
-    S.bank = { accounts:data.accounts||[], last_sync:data.last_sync, fetched:new Date().toISOString(), log:data.log||[] };
+    S.bank = { accounts:liveAccounts(data.accounts), last_sync:data.last_sync, fetched:new Date().toISOString(), log:data.log||[] };
     // Crea en la app una cuenta por cada banco conectado que no tenga ya
     for(const aspsp of [...new Set(S.bank.accounts.map(a=>a.aspsp).filter(Boolean))]){
       const ex = appAccountFor({aspsp});

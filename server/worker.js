@@ -13,7 +13,7 @@
 // KV:
 //   DB              almacenamiento de sesiones, movimientos y estado
 
-const VERSION = '2026-11-26.1';
+const VERSION = '2026-11-26.2';
 const SCHEMA = 2; // 2: movimientos identificados por cuenta estable (IBAN), sin duplicados entre conexiones
 const EB_API = 'https://api.enablebanking.com';
 const CONSENT_DAYS = 180;
@@ -273,7 +273,7 @@ function internalIds(txs) {
   for (const t of txs) (by[t.amount.toFixed(2)] = by[t.amount.toFixed(2)] || []).push(t);
   for (const list of Object.values(by)) for (const a of list) {
     if (out.has(a.id)) continue;
-    const b = list.find(x => x.id !== a.id && !out.has(x.id) && (x.account_key || x.account_uid) !== (a.account_key || a.account_uid) && x.type !== a.type && Math.abs(new Date(x.date) - new Date(a.date)) <= 2 * 864e5);
+    const b = list.find(x => x.id !== a.id && !out.has(x.id) && (x.account_key || x.account_uid) !== (a.account_key || a.account_uid) && x.type !== a.type && Math.abs(new Date(x.date) - new Date(a.date)) <= 5 * 864e5);
     if (b) { out.add(a.id); out.add(b.id); }
   }
   for (const t of txs) if (/trade ?republic/i.test(`${t.counterparty} ${t.description}`) && !/trade ?republic/i.test(t.aspsp || '')) out.add(t.id);

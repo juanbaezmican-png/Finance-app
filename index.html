@@ -669,9 +669,9 @@ function planFor(ym, keep){
 const hasPlan = ym => !!(S.plans && S.plans[ym]);
 const hasPlanTouched = ym => !!(S.plans && S.plans[ym] && S.plans[ym].touched);
 function planIncome(ym){ const p=planFor(ym);
-  if(p.income!=null && (p.incomeManual || !S.incomeForecast)) return p.income;
-  const fc=forecastIncome(payMonthOf(ym));
-  if(fc!=null){ const recv=receivedIncome(ym); return recv>0 ? recv : fc; }
+  if(p.income!=null && p.incomeManual) return p.income;      // lo que escribiste tú
+  const recv=receivedIncome(ym); if(recv>0) return recv;      // la nómina que ha llegado de verdad
+  const fc=forecastIncome(payMonthOf(ym)); if(fc!=null) return fc; // la previsión
   if(p.income!=null) return p.income;
   return round2(S.recurring.filter(r=>r.active && r.type==='ingreso').reduce((a,r)=>a+r.amount,0)); }
 const receivedIncome = ym => round2(S.movements.filter(m=>m.type==='ingreso' && m.categoryId==='nomina' && m.date && planMonthOf(m.date)===ym).reduce((a,m)=>a+m.amount,0));
@@ -926,6 +926,7 @@ function openMovement(id, preset={}){
     <div class="field"><label>Nota (opcional)</label><input class="input" id="mNote" placeholder="Ej. Mercadona, cena con amigos…" value="${esc(st.note)}" maxlength="80"></div>
     ${m&&m.recurringId?'<p class="hint" style="margin-top:-4px">Generado por un gasto fijo. Si lo cambias solo afecta a este mes.</p>':''}
     <button class="btn primary block" id="mSave" style="min-height:50px;font-size:16px;margin-top:4px">${m?'Guardar cambios':'Añadir'}</button>
+    ${m&&m.bankId?`<button class="btn block" style="margin-top:8px" onclick="App.markTransfer('${m.id}')">Es un traspaso entre mis cuentas</button>`:''}
     ${m?`<button class="btn danger block" style="margin-top:8px" onclick="App.delMovement('${m.id}')">Eliminar movimiento</button>`:''}`;
   modal(m?'Editar movimiento':'Nuevo movimiento', body, o=>{
     const drawCats=()=>{ const cs=S.categories.filter(c=>c.type===st.type); if(!cs.some(c=>c.id===st.categoryId)) st.categoryId='';
@@ -1483,7 +1484,12 @@ function guessCategory(tx, pk){
   const key = merchantKey(tx); const learned = (S.settings.merchantMap||{})[key];
   if(learned && S.categories.some(c=>c.id===learned)) return { id:learned, sure:true };
   const text = norm(tx.counterparty+' '+tx.description);
-  if(tx.type==='ingreso'){ for(const [re,id] of INC_RULES) if(re.test(text)) return { id, sure:true }; return { id: tx.amount>=600 ? 'nomina' : 'otros_i', sure: false }; }
+  if(tx.type==='ingreso'){
+    for(const [re,id] of INC_RULES) if(re.test(text)) return { id, sure:true };
+    // nómina: ingreso grande que viene de una empresa (S.L., S.A., auditores…)
+    if(tx.amount>=600 && /\b(s l u?|s a u?|slu|sl|sa|sociedad|limitada|auditores|consulting|group)\b/.test(norm(tx.counterparty+' '+tx.description))) return { id:'nomina', sure:true };
+    return { id:'otros_i', sure:false };
+  }
   if(tx.mcc) for(const [re,id] of MCC) if(re.test(String(tx.mcc))) return { id, sure:true };
   for(const [re,id] of RULES) if(re.test(text)) return { id, sure:true };
   if(pk && (pk.categories||[]).length) return { id: pk.categories[0], sure:false };
@@ -1515,6 +1521,9 @@ function linkPockets(accounts){
   return created;
 }
 
+// Cuenta "estable": banco + (para Revolut) el nombre del pocket. No depende del uid, que cambia al reconectar
+const bankBase = aspsp => norm(aspsp).replace(/^banco /,'').split(' ')[0] || '';
+const acctOf = t => bankBase(t.aspsp)+'|'+(/revolut/i.test(t.aspsp||'') ? (norm(t.account_name) || t.account_uid) : '') || t.account_uid;
 function markInternal(txs){
   // Un traspaso entre tus cuentas o pockets aparece dos veces (salida y entrada): se detecta por pares
   const out = new Set(txs.filter(t=>t.internal).map(t=>t.id));
@@ -1522,7 +1531,9 @@ function markInternal(txs){
   for(const t of txs){ (byAmt[t.amount.toFixed(2)] = byAmt[t.amount.toFixed(2)] || []).push(t); }
   for(const list of Object.values(byAmt)){
     for(const a of list){ if(out.has(a.id)) continue;
-      const b = list.find(x=>x.id!==a.id && !out.has(x.id) && x.account_uid!==a.account_uid && x.type!==a.type && Math.abs(new Date(x.date)-new Date(a.date))<=2*864e5);
+      // salida en una cuenta y entrada del mismo importe en otra tuya, con hasta 5 días de diferencia (las transferencias entre bancos tardan)
+      const b = list.filter(x=>x.id!==a.id && !out.has(x.id) && acctOf(x)!==acctOf(a) && x.type!==a.type && Math.abs(new Date(x.date)-new Date(a.date))<=5*864e5)
+                    .sort((x,y)=>Math.abs(new Date(x.date)-new Date(a.date))-Math.abs(new Date(y.date)-new Date(a.date)))[0];
       if(b){ out.add(a.id); out.add(b.id); } } }
   for(const t of txs) if(/trade republic/.test(norm(t.counterparty+' '+t.description))) out.add(t.id); // ahorro hacia Trade Republic
   return out;
@@ -1556,10 +1567,20 @@ function reconcileBank(all){
   // 1) Copias del mismo movimiento en dos conexiones del mismo banco: se queda una
   const groups = {}; for(const t of live) (groups[txFp(t)] = groups[txFp(t)] || []).push(t);
   const alias = new Set();
+  // El banco puede mandar el mismo movimiento desde dos conexiones (y con distinta descripción, p. ej. "ABONO" y "TRANSFERENCIA DE…")
+  const loose = {}; for(const t of live){ const k=[acctOf(t), t.date, (+t.amount).toFixed(2), t.type].join('|'); (loose[k]=loose[k]||[]).push(t); }
+  const newest = {}; for(const a of (S.bank?.accounts||[])) newest[a.uid]=1; // uids de las conexiones actuales
+  for(const g of Object.values(loose)){
+    const byConn = {}; for(const t of g) (byConn[t.account_uid] = byConn[t.account_uid] || []).push(t);
+    const lists = Object.values(byConn); if(lists.length<2) continue;
+    // se queda la conexión actual (o la que más movimientos tiene)
+    lists.sort((a,b)=>((newest[b[0].account_uid]?1000:0)+b.length)-((newest[a[0].account_uid]?1000:0)+a.length));
+    lists.slice(1).flat().forEach(t=>alias.add(t.id));
+  }
+  // Mismo movimiento guardado dos veces por el servidor antiguo con identificadores distintos (sin id del banco)
   for(const g of Object.values(groups)){
-    const byAcc = {}; for(const t of g) (byAcc[t.account_key||t.account_uid] = byAcc[t.account_key||t.account_uid] || []).push(t);
-    const lists = Object.values(byAcc); if(lists.length<2) continue;
-    lists.sort((a,b)=>b.length-a.length); lists.slice(1).flat().forEach(t=>alias.add(t.id));
+    const byConn = {}; for(const t of g) if(!alias.has(t.id) && /\|/.test(t.id)) (byConn[t.account_uid] = byConn[t.account_uid] || []).push(t);
+    for(const list of Object.values(byConn)) list.slice(1).forEach(t=>alias.add(t.id));
   }
   // 2) Movimientos de la app con un identificador antiguo: se reenlazan; los que sobran son duplicados y se quitan
   const liveIds = new Set(live.filter(t=>!alias.has(t.id)).map(t=>t.id));
@@ -1600,8 +1621,10 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     const newPockets = linkPockets(S.bank.accounts);
     const from = S.settings.syncFrom || todayStr();
     const txs = (data.transactions||[]).filter(t=>t.date && t.date>=from && t.amount>0);
-    const internal = markInternal(data.transactions||[]);
     const rec = reconcileBank(data.transactions||[]);
+    const internal = markInternal((data.transactions||[]).filter(t=>!rec.alias.has(t.id)));
+    // los movimientos ya importados que resultan ser traspasos entre tus cuentas se quitan
+    { const intIds=new Set(internal); const before=S.movements.length; S.movements=S.movements.filter(m=>!(m.bankId && intIds.has(m.bankId) && !m.receipt)); rec.removed += before-S.movements.length; }
     const seen = S.settings.bankSeen = S.settings.bankSeen || {};
     const byBankId = new Map(S.movements.filter(m=>m.bankId).map(m=>[m.bankId,m]));
     const fresh=[]; let linked=0, updated=0;
@@ -1711,7 +1734,8 @@ window.App = {
   filter(k,v){ ui.f[k]=v; if(k==='type' && v && ui.f.cat && cat(ui.f.cat).type!==v) ui.f.cat=''; const pos = k==='q' ? document.activeElement.selectionStart : null; render(); if(k==='q'){ const s=document.querySelector('.search'); s.focus(); s.setSelectionRange(pos,pos); } },
   clearFilters(){ ui.f={q:'',cat:'',type:'',method:'',where:''}; render(); },
   openMovement, delMovement, editCategory, editBudget, editRecurring, editPocket, pocketDetail, editAccount, editGoal, goalDetail,
-  exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan, saveSync, bankSync, dailyScript, planSet, planItemMenu, planExtra, editForecast,
+  exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan, saveSync, bankSync, dailyScript,
+  markTransfer(id){ if(!confirm('¿Es un traspaso entre tus propias cuentas? Se quitará y no contará ni como gasto ni como ingreso.')) return; S.movements=S.movements.filter(m=>m.id!==id); save(); closeModal(); render(); toast('Quitado: no cuenta como gasto ni ingreso','ok'); }, planSet, planItemMenu, planExtra, editForecast,
   fcMonths(n){ ui.fcN=n; render(); },
   saveKey(){ const v=(document.getElementById('apiKey')?.value||'').trim(); if(v && !/^sk-ant-/.test(v)){ toast('La clave debería empezar por sk-ant-','over'); return; } S.settings.apiKey=v; save(); render(); toast(v?'Clave guardada':'Clave eliminada','ok'); },
   _state:()=>S, _totals:totals,

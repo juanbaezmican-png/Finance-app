@@ -240,7 +240,7 @@ textarea.input{border-radius:16px}
 
 /* ============ Utilidades ============ */
 const KEY = 'misfinanzas_v1';
-const APP_VERSION = '2026-11-26.4';
+const APP_VERSION = '2026-11-27.1';
 const $ = s => document.querySelector(s);
 const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
 const pad = n => String(n).padStart(2,'0');
@@ -1576,6 +1576,17 @@ function markInternal(txs){
                     .sort((x,y)=>Math.abs(new Date(x.date)-new Date(a.date))-Math.abs(new Date(y.date)-new Date(a.date)))[0];
       if(b){ out.add(a.id); out.add(b.id); } } }
   for(const t of txs) if(/trade republic/.test(norm(t.counterparty+' '+t.description))) out.add(t.id); // ahorro hacia Trade Republic
+  // Revolut: "To pocket…", "From pocket…" o el nombre de uno de tus pockets → traspaso entre tu cuenta y tus pockets
+  const pocketNames = S.pockets.map(p=>norm(p.name)).filter(n=>n.length>2);
+  for(const t of txs){
+    if(!/revolut/i.test(t.aspsp||'')) continue;
+    const txt = norm(t.counterparty+' '+t.description);
+    if(/\bpocket\b|\bvault\b|\bhucha\b/.test(txt) || pocketNames.some(n=>new RegExp('\\b(to|from|a|de|hacia|desde)\\b.*\\b'+n+'\\b').test(txt)) || pocketNames.includes(norm(t.counterparty))) out.add(t.id);
+    // movimientos dentro de un pocket que vienen de tu cuenta principal ("From EUR", "Top-up")
+    if(t.type==='ingreso' && !/^(eur( euro)?|euro|main|principal|current)$/.test(norm(t.account_name)) && /\b(from|de|desde)\b.*\b(eur|euro|main|principal)\b|top up|topup/.test(txt)) out.add(t.id);
+  }
+  // Trade Republic: el dinero que entra viene de tus cuentas (es ahorro, no un ingreso); los intereses pequeños sí cuentan
+  for(const t of txs) if(/trade/i.test(t.aspsp||'') && t.type==='ingreso' && t.amount>=50) out.add(t.id);
   return out;
 }
 
@@ -1617,6 +1628,11 @@ function reconcileBank(all){
     lists.sort((a,b)=>((newest[b[0].account_uid]?1000:0)+b.length)-((newest[a[0].account_uid]?1000:0)+a.length));
     lists.slice(1).flat().forEach(t=>alias.add(t.id));
   }
+  // Importes grandes (nómina, alquiler…) repetidos en la misma cuenta, con la misma descripción y a 1-3 días: es el mismo movimiento
+  { const big = live.filter(t=>!alias.has(t.id) && t.amount>=300).sort((a,b)=>a.date.localeCompare(b.date));
+    for(let i=0;i<big.length;i++) for(let j=i+1;j<big.length;j++){ const a=big[i], b=big[j];
+      if(alias.has(a.id)||alias.has(b.id)) continue;
+      if(a.account_uid===b.account_uid && a.type===b.type && Math.abs(a.amount-b.amount)<0.01 && norm(a.description)===norm(b.description) && Math.abs(new Date(b.date)-new Date(a.date))<=3*864e5) alias.add(b.id); } }
   // Mismo movimiento guardado dos veces por el servidor antiguo con identificadores distintos (sin id del banco)
   for(const g of Object.values(groups)){
     const byConn = {}; for(const t of g) if(!alias.has(t.id) && /\|/.test(t.id)) (byConn[t.account_uid] = byConn[t.account_uid] || []).push(t);
@@ -1674,6 +1690,9 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     const ignored = new Set(S.settings.ignoredAccounts||[]);
     S.bank = { all:(data.accounts||[]).map(a=>({ uid:a.uid, aspsp:a.aspsp, name:a.name, iban:a.iban||'', valid_until:a.valid_until||'', balance:a.balance||null, error:a.error||'' })),
                accounts:liveAccounts((data.accounts||[]).filter(a=>!ignored.has(a.uid))), last_sync:data.last_sync, fetched:new Date().toISOString(), log:data.log||[] };
+    // Solo los movimientos de la conexión que se usa de cada banco: las conexiones repetidas no aportan nada
+    const liveUids = new Set(S.bank.accounts.map(a=>a.uid));
+    data.transactions = (data.transactions||[]).filter(t=>!ignored.has(t.account_uid) && liveUids.has(t.account_uid));
     // Crea en la app una cuenta por cada banco conectado que no tenga ya
     for(const aspsp of [...new Set(S.bank.accounts.map(a=>a.aspsp).filter(Boolean))]){
       const ex = appAccountFor({aspsp});
@@ -1684,7 +1703,15 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     const newPockets = linkPockets(S.bank.accounts);
     const from = S.settings.syncFrom || todayStr();
     const txs = (data.transactions||[]).filter(t=>t.date && t.date>=from && t.amount>0);
-    data.transactions = (data.transactions||[]).filter(t=>!ignored.has(t.account_uid)); // cuentas que has decidido ignorar
+    // Limpieza total (una sola vez): se quitan los movimientos que vinieron del banco y se vuelven a importar limpios.
+    // Se conservan los apuntados a mano y los tickets; las categorías se vuelven a aplicar por comercio.
+    if(S.settings.bankRebuild!==3){
+      S.movements = S.movements.filter(m=>!(m.bankId && m.bankDesc && !m.receipt));
+      S.movements.forEach(m=>{ if(m.bankId){ m.bankId=''; m.bankPending=false; } });
+      S.settings.bankSeen = {};
+      S.settings.bankRebuild = 3;
+      S.settings._rebuilt = true;
+    }
     const rec = reconcileBank(data.transactions||[]);
     const internal = markInternal((data.transactions||[]).filter(t=>!rec.alias.has(t.id)));
     // los movimientos ya importados que resultan ser traspasos entre tus cuentas se quitan
@@ -1722,8 +1749,10 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
       if(!internal.has(t.id) || !t.date) continue; const ym=planMonthOf(t.date); if(ym<fromYm) continue;
       const pk=S.pockets.find(p=>p.bankUid && p.bankUid===t.account_uid);
       if(pk){ ba[ym]=ba[ym]||{}; ba[ym][pk.id]=round2((ba[ym][pk.id]||0)+(t.type==='ingreso'?t.amount:-t.amount)); }
-      const toTR = /trade republic/.test(norm(t.counterparty+' '+t.description)) && !/trade/.test(norm(t.aspsp));
-      if(toTR) bs[ym]=round2((bs[ym]||0)+(t.type==='gasto'?t.amount:-t.amount));
+      // Ahorro: lo que entra en Trade Republic desde tus cuentas; si Trade Republic no está conectado, lo que sale hacia él
+      const trConnected = (S.bank.accounts||[]).some(x=>/trade/i.test(x.aspsp||''));
+      if(trConnected){ if(/trade/i.test(t.aspsp||'')) bs[ym]=round2((bs[ym]||0)+(t.type==='ingreso'?t.amount:-t.amount)); }
+      else if(/trade republic/.test(norm(t.counterparty+' '+t.description))) bs[ym]=round2((bs[ym]||0)+(t.type==='gasto'?t.amount:-t.amount));
     }
     S.bankAlloc=ba; S.bankSavings=bs;
     const added = txs.filter(t=>byBankId.get(t.id)===undefined && seen[t.id]).length;
@@ -1738,7 +1767,8 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     else if(ui.tab==='plan' && ui.month===nextBefore && nextPlanMonth()!==nextBefore) ui.month=nextPlanMonth();
     save(); render();
     const n = S.movements.filter(m=>m.bankId && seen[m.bankId] && m._t && Date.now()-m._t<60000).length;
-    if(rec.removed){ toast(`He quitado ${rec.removed} movimiento${rec.removed>1?'s':''} duplicado${rec.removed>1?'s':''}`,'ok'); }
+    if(S.settings._rebuilt){ delete S.settings._rebuilt; save(); toast('He limpiado y vuelto a importar tus movimientos del banco, ya sin duplicados','ok'); }
+    else if(rec.removed){ toast(`He quitado ${rec.removed} movimiento${rec.removed>1?'s':''} duplicado${rec.removed>1?'s':''}`,'ok'); }
     else if(!quiet || n) toast(n ? `${n} movimiento${n>1?'s':''} nuevo${n>1?'s':''} del banco${linked?` · ${linked} enlazado${linked>1?'s':''}`:''}` : (linked ? `${linked} movimiento${linked>1?'s':''} enlazado${linked>1?'s':''} con el banco` : 'Todo al día'), 'ok');
     if(newPockets && !quiet) setTimeout(()=>toast(`He creado ${newPockets} pocket${newPockets>1?'s':''} a partir de Revolut. Ponles lo que les asignas al mes.`), 2600);
   }catch(e){ console.warn(e); if(!quiet) toast(e.message || 'No se pudo sincronizar','over'); }

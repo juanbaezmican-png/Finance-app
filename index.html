@@ -240,7 +240,7 @@ textarea.input{border-radius:16px}
 
 /* ============ Utilidades ============ */
 const KEY = 'misfinanzas_v1';
-const APP_VERSION = '2026-11-27.1';
+const APP_VERSION = '2026-11-27.2';
 const $ = s => document.querySelector(s);
 const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
 const pad = n => String(n).padStart(2,'0');
@@ -608,6 +608,8 @@ function savingsNow(){
 function forecastRows(n){
   // Empieza por la próxima nómina (la que estás gastando ya está repartida)
   const start=nextPlanMonth(); const rows=[]; let acc=savingsNow().amount;
+  // lo que ya has enviado a Trade Republic en los periodos que se van a sumar está dentro del saldo actual
+  for(let i=0;i<n;i++){ const ym=addMonths(start,i); if(ym<=currentPlanMonth()) acc=round2(acc-((S.bankSavings||{})[ym]||0)); }
   for(let i=0;i<n;i++){
     const ym=addMonths(start,i), pt=planTotals(ym);
     acc=round2(acc+pt.saving);
@@ -626,7 +628,7 @@ function forecastCard(){
   const y=v=>H-14-(v/max)*(H-34);
   const chart=`<div class="chart" style="margin:4px 0 6px"><svg viewBox="0 0 ${W} ${H}"><polyline points="${pts.map(([x,v])=>`${x.toFixed(1)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>${pts.map(([x,v],i)=>`<circle cx="${x.toFixed(1)}" cy="${y(v).toFixed(1)}" r="${i?3.5:3}" fill="#fff" stroke="var(--green)" stroke-width="2"><title>${eur(v)}</title></circle>`).join('')}<text x="${W-2}" y="${Math.max(y(rows[rows.length-1].acc)-8,10)}" text-anchor="end" font-size="11" font-weight="600" fill="var(--green)">${eurK(rows[rows.length-1].acc)}</text>${rows.map((r,i)=>`<text x="${((i+1)*step).toFixed(1)}" y="${H-1}" text-anchor="middle" font-size="10" fill="var(--muted)">${MESES_C[+payMonthOf(r.ym).slice(5)-1]}</text>`).join('')}</svg></div>`;
   return `<div class="card section"><h2>Previsión <small><span class="seg" style="display:inline-flex;margin:0;padding:2px">${[3,6,12].map(k=>`<button class="${k===n?'on':''}" style="padding:4px 10px;font-size:12px" onclick="App.fcMonths(${k})">${k} m</button>`).join('')}</span></small></h2>
-    <div class="stat"><div class="lbl">Ahorro previsto tras la nómina de ${monthLabel(payMonthOf(rows[rows.length-1].ym))}</div><div class="val num green">${eur(rows[rows.length-1].acc,0)}</div><div class="sub">Partes de ${eur(start.amount,0)} (${start.src}) y sumas lo que te sobra cada mes.</div></div>
+    <div class="stat"><div class="lbl">Ahorro previsto tras la nómina de ${monthLabel(payMonthOf(rows[rows.length-1].ym))}</div><div class="val num green">${eur(rows[rows.length-1].acc,0)}</div><div class="sub">Partes de ${eur(rows[0].acc-rows[0].saving,0)} (${start.src}${Math.abs(rows[0].acc-rows[0].saving-start.amount)>0.5?', sin lo que ya enviaste este mes':''}) y sumas lo que te sobra cada mes.</div></div>
     ${chart}
     ${rows.map(r=>`<div class="item pi" style="cursor:pointer" onclick="App.setMonth('${r.ym}');window.scrollTo({top:0,behavior:'smooth'})"><div class="body"><div class="t"><span style="text-transform:capitalize">${monthLabel(payMonthOf(r.ym))}${r.label?`<span class="tag rec">${esc(r.label)}</span>`:''}</span><span class="num ${r.saving<0?'red':'green'}">${r.saving>=0?'+':''}${eur(r.saving,0)}</span></div><div class="s"><span>Entra <b class="num">${eur(r.inc,0)}</b> · fijos ${eur(r.fixed,0)} · pockets ${eur(r.pockets,0)}${r.saving<0?` · <span class="red">gastas más de lo que entra</span>`:''}</span><span class="num">${eur(r.acc,0)}</span></div></div></div>`).join('')}
     <div class="row-btns" style="margin-top:12px"><button class="btn sm" onclick="App.editForecast()">Editar ingresos previstos</button></div>
@@ -965,6 +967,7 @@ function openMovement(id, preset={}){
     <div class="field"><label>Cuenta</label><select class="select" id="mAccount">${opts(S.accounts.map(a=>[a.id,`${a.icon} ${a.name}`]), st.accountId, 'Sin especificar')}</select></div></div>
     <div class="field"><label>Nota (opcional)</label><input class="input" id="mNote" placeholder="Ej. Mercadona, cena con amigos…" value="${esc(st.note)}" maxlength="80"></div>
     ${m&&m.recurringId?'<p class="hint" style="margin-top:-4px">Generado por un gasto fijo. Si lo cambias solo afecta a este mes.</p>':''}
+    ${m&&m.bankId?`<p class="hint" style="margin-top:-4px">Del banco: <b>${esc(m.bankAspsp||'')}${m.bankAccName?' · '+esc(m.bankAccName):''}</b> · “${esc(m.bankDesc||'')}”</p>`:''}
     <button class="btn primary block" id="mSave" style="min-height:50px;font-size:16px;margin-top:4px">${m?'Guardar cambios':'Añadir'}</button>
     ${m&&m.bankId?`<button class="btn block" style="margin-top:8px" onclick="App.markTransfer('${m.id}')">Es un traspaso entre mis cuentas</button>`:''}
     ${m?`<button class="btn danger block" style="margin-top:8px" onclick="App.delMovement('${m.id}')">Eliminar movimiento</button>`:''}`;
@@ -1581,10 +1584,16 @@ function markInternal(txs){
   for(const t of txs){
     if(!/revolut/i.test(t.aspsp||'')) continue;
     const txt = norm(t.counterparty+' '+t.description);
-    if(/\bpocket\b|\bvault\b|\bhucha\b/.test(txt) || pocketNames.some(n=>new RegExp('\\b(to|from|a|de|hacia|desde)\\b.*\\b'+n+'\\b').test(txt)) || pocketNames.includes(norm(t.counterparty))) out.add(t.id);
+    const isCard = !!t.mcc;
+    if(/\bpocket\b|\bvault\b|\bhucha\b|\bsavings?\b|money (added|moved|withdrawn)/.test(txt)
+       || pocketNames.includes(norm(t.counterparty))
+       || (!isCard && pocketNames.some(n=>new RegExp('(^|\\s)'+n+'(\\s|$)').test(txt)))) out.add(t.id);
     // movimientos dentro de un pocket que vienen de tu cuenta principal ("From EUR", "Top-up")
     if(t.type==='ingreso' && !/^(eur( euro)?|euro|main|principal|current)$/.test(norm(t.account_name)) && /\b(from|de|desde)\b.*\b(eur|euro|main|principal)\b|top up|topup/.test(txt)) out.add(t.id);
   }
+  // Lo que has marcado tú como traspaso (mismo tipo de movimiento) también lo es
+  const learnedInt = S.settings.internalKeys || {};
+  for(const t of txs){ const k=(t.type==='gasto'?'-':'+')+'|'+merchantKey(t); if(learnedInt[k]) out.add(t.id); }
   // Trade Republic: el dinero que entra viene de tus cuentas (es ahorro, no un ingreso); los intereses pequeños sí cuentan
   for(const t of txs) if(/trade/i.test(t.aspsp||'') && t.type==='ingreso' && t.amount>=50) out.add(t.id);
   return out;
@@ -1737,7 +1746,7 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
       if(match){ Object.assign(match, { bankId:t.id, bankAccount:t.account_uid, bankPending:pending, amount:t.amount, date:t.date, accountId: match.accountId||accountId, pocketId: match.pocketId || (pk?pk.id:''), sample:false }); seen[t.id]=1; linked++; continue; }
       const g = guessCategory(t, pk);
       const mv = { id:uid(), type:t.type, amount:t.amount, categoryId:g.id, date:t.date, method:guessMethod(t), accountId, pocketId: t.type==='gasto' && pk ? pk.id : '', note:(t.counterparty || t.description).slice(0,80), recurringId:'', sample:false,
-        bankId:t.id, bankAccount:t.account_uid, bankPending:pending, bankDesc:t.description.slice(0,160), merchantKey:merchantKey(t), _t:Date.now() };
+        bankId:t.id, bankAccount:t.account_uid, bankAspsp:t.aspsp||'', bankAccName:t.account_name||'', bankDesc:t.description.slice(0,160), merchantKey:merchantKey(t), _t:Date.now() };
       if(!mv.pocketId && t.type==='gasto' && /revolut/i.test(t.aspsp||'')){ const p2=S.pockets.find(p=>(p.categories||[]).includes(g.id)); if(p2) mv.pocketId=p2.id; }
       if(!g.sure) fresh.push({ mv, t:{...t, _pocket: pk?pk.name:''} });
       S.movements.push(mv); seen[t.id]=1;
@@ -1834,7 +1843,13 @@ window.App = {
   openMovement, delMovement, editCategory, editBudget, editRecurring, editPocket, pocketDetail, editAccount, editGoal, goalDetail,
   exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan, saveSync, bankSync, dailyScript,
   toggleAccount(uid){ const l=S.settings.ignoredAccounts=S.settings.ignoredAccounts||[]; const i=l.indexOf(uid); i>=0?l.splice(i,1):l.push(uid); save(); toast(i>=0?'Cuenta en uso':'Cuenta ignorada','ok'); bankSync({quiet:true}).then(render); },
-  markTransfer(id){ if(!confirm('¿Es un traspaso entre tus propias cuentas? Se quitará y no contará ni como gasto ni como ingreso.')) return; S.movements=S.movements.filter(m=>m.id!==id); save(); closeModal(); render(); toast('Quitado: no cuenta como gasto ni ingreso','ok'); }, planSet, planItemMenu, planExtra, editForecast,
+  markTransfer(id){ if(!confirm('¿Es un traspaso entre tus propias cuentas? Se quitará y no contará ni como gasto ni como ingreso. Los movimientos parecidos también se tratarán como traspasos.')) return;
+    const m=S.movements.find(x=>x.id===id);
+    if(m && m.merchantKey){ const k=(m.type==='gasto'?'-':'+')+'|'+m.merchantKey; (S.settings.internalKeys=S.settings.internalKeys||{})[k]=1; }
+    // también los demás movimientos ya importados del mismo tipo
+    const same = S.movements.filter(x=>x.id!==id && m && x.bankId && x.merchantKey===m.merchantKey && x.type===m.type);
+    S.movements=S.movements.filter(x=>x.id!==id && !same.includes(x)); save(); closeModal(); render();
+    toast(same.length?`Quitados ${same.length+1} traspasos: no cuentan como gasto ni ingreso`:'Quitado: no cuenta como gasto ni ingreso','ok'); }, planSet, planItemMenu, planExtra, editForecast,
   fcMonths(n){ ui.fcN=n; render(); },
   saveKey(){ const v=(document.getElementById('apiKey')?.value||'').trim(); if(v && !/^sk-ant-/.test(v)){ toast('La clave debería empezar por sk-ant-','over'); return; } S.settings.apiKey=v; save(); render(); toast(v?'Clave guardada':'Clave eliminada','ok'); },
   _state:()=>S, _totals:totals,

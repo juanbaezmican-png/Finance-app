@@ -240,7 +240,7 @@ textarea.input{border-radius:16px}
 
 /* ============ Utilidades ============ */
 const KEY = 'misfinanzas_v1';
-const APP_VERSION = '2026-11-27.2';
+const APP_VERSION = '2026-11-27.3';
 const $ = s => document.querySelector(s);
 const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
 const pad = n => String(n).padStart(2,'0');
@@ -539,7 +539,8 @@ function viewPockets(){
   </div>
   <div class="card section"><h2>Pockets de Revolut <button class="btn sm" onclick="App.editPocket()">+ Nuevo pocket</button></h2>
   ${S.pockets.length?`<div class="pockets">${S.pockets.map(p=>{ const sp=pocketSpent(p.id,ui.month), l=level(sp,alloc(p,ui.month)), left=pocketLeft(p,ui.month), real=ui.month===currentPlanMonth()&&pocketBalance(p)!=null;
-    return `<div class="pocket" onclick="App.pocketDetail('${p.id}')"><div class="top"><span>${p.icon}</span><span>${esc(p.name)}</span>${l?`<span class="tag ${l}">${l==='over'?'Pasado':'Casi vacío'}</span>`:''}</div><div class="left num ${left<0?'red':''}">${eur(left)}</div><div class="of">${real?'saldo en Revolut':'quedan'} · plan ${eur(alloc(p,ui.month),0)}${metidoReal(p,ui.month)?` · metido ${eur(metidoReal(p,ui.month),0)}`:''} · gastado ${eur(sp,0)}</div><div class="prog ${l}"><i style="width:${Math.min(alloc(p,ui.month)?sp/alloc(p,ui.month)*100:0,100)}%;${l?'':`background:${p.color}`}"></i></div></div>`; }).join('')}</div><p class="hint">Cada pocket tiene su tarjeta. Al apuntar un gasto elige el pocket y se descontará de aquí. Toca un pocket para ver sus movimientos o editarlo.</p>`
+    return `<div class="pocket" onclick="App.pocketDetail('${p.id}')"><div class="top"><span>${p.icon}</span><span>${esc(p.name)}</span>${l?`<span class="tag ${l}">${l==='over'?'Pasado':'Casi vacío'}</span>`:''}</div><div class="left num ${left<0?'red':''}">${eur(left)}</div><div class="of">${real?'saldo en Revolut':'quedan'} · plan ${eur(alloc(p,ui.month),0)}${metidoReal(p,ui.month)?` · metido ${eur(metidoReal(p,ui.month),0)}`:''} · gastado ${eur(sp,0)}</div><div class="prog ${l}"><i style="width:${Math.min(alloc(p,ui.month)?sp/alloc(p,ui.month)*100:0,100)}%;${l?'':`background:${p.color}`}"></i></div></div>`; }).join('')}</div>${(()=>{ const revOn=(S.bank?.accounts||[]).some(a=>/revolut/i.test(a.aspsp||'')); const miss=S.pockets.filter(p=>revOn && pocketBalance(p)==null);
+      return miss.length?`<p class="hint red">Revolut no está enviando ${miss.map(p=>'<b>'+esc(p.name)+'</b>').join(', ')}: sus gastos y traspasos no llegan. En Ajustes → Gestionar bancos, vuelve a conectar Revolut y marca todos los pockets.</p>`:''; })()}<p class="hint">Cada pocket tiene su tarjeta. Al apuntar un gasto elige el pocket y se descontará de aquí. Toca un pocket para ver sus movimientos o editarlo.</p>`
   :`<div class="empty"><span class="big">${ic('wallet')}</span>Aún no tienes pockets. Crea uno por cada pocket de Revolut (p. ej. Súper, Ocio, Comer fuera) con lo que le asignas al mes.<br><br><button class="btn primary" onclick="App.editPocket()">+ Crear pocket</button></div>`}</div>
   <div class="card section"><h2>Mis cuentas <small>${perLabel(ui.month)}</small></h2><div class="accounts">${S.accounts.map(a=>{ const f=accFlows(a.id);
     const bal = (S.bank?.accounts||[]).filter(x=>appAccountFor({aspsp:x.aspsp})===a.id && x.balance && Number.isFinite(x.balance.amount)).reduce((s,x)=>s+x.balance.amount,0);
@@ -898,6 +899,7 @@ function viewSettings(){
             <div class="s"><span>${ign?'<span class="red">Ignorada por ti</span>':used?'<span class="green">En uso</span>':'Ignorada (conexión repetida)'} · saldo del ${a.balance&&a.balance.date?new Date(a.balance.date).toLocaleString('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—'} · permiso hasta ${a.valid_until?shortDate(a.valid_until.slice(0,10)):'—'}</span></div></div>
             <button class="btn sm ghost" onclick="App.toggleAccount('${esc(a.uid)}')">${ign?'Usar':'Ignorar'}</button></div>`; }).join('')}
         </div>`:''}
+      ${syncOn()?'<button class="btn sm" style="margin-top:10px" onclick="App.report()">Copiar informe de movimientos</button>':''}
       <p class="hint">Los traspasos entre tus cuentas y pockets no cuentan como gasto. Si cambias la categoría de un movimiento del banco, la app lo recordará para ese comercio.</p>
     </div>
     <div class="card"><h2>Lectura de tickets con IA</h2>
@@ -1570,6 +1572,7 @@ const acctOf = t => bankBase(t.aspsp)+'|'+(/revolut/i.test(t.aspsp||'') ? (norm(
 function markInternal(txs){
   // Un traspaso entre tus cuentas o pockets aparece dos veces (salida y entrada): se detecta por pares
   const out = new Set(txs.filter(t=>t.internal).map(t=>t.id));
+  const holder = new Set(S.settings.holderNames||[]);
   const byAmt = {};
   for(const t of txs){ (byAmt[t.amount.toFixed(2)] = byAmt[t.amount.toFixed(2)] || []).push(t); }
   for(const list of Object.values(byAmt)){
@@ -1577,7 +1580,9 @@ function markInternal(txs){
       // salida en una cuenta y entrada del mismo importe en otra tuya, con hasta 5 días de diferencia (las transferencias entre bancos tardan)
       const b = list.filter(x=>x.id!==a.id && !out.has(x.id) && acctOf(x)!==acctOf(a) && x.type!==a.type && Math.abs(new Date(x.date)-new Date(a.date))<=5*864e5)
                     .sort((x,y)=>Math.abs(new Date(x.date)-new Date(a.date))-Math.abs(new Date(y.date)-new Date(a.date)))[0];
-      if(b){ out.add(a.id); out.add(b.id); } } }
+      if(b){ out.add(a.id); out.add(b.id); if(bankBase(a.aspsp)!==bankBase(b.aspsp)) [a,b].forEach(x=>{ const n=norm(x.counterparty); if(/^[a-z]+( [a-z]+){1,4}$/.test(n) && !/\b(s l|s a|sl|sa|slu|bank|banco|revolut|trade|republic)\b/.test(n)) holder.add(n); }); } } }
+  S.settings.holderNames = [...holder];
+  for(const t of txs){ const c=norm(t.counterparty); if(c && [...holder].some(h=>c===h || (c.split(' ').length>=2 && (c.includes(h)||h.includes(c))))) out.add(t.id); else if(holder.size && [...holder].some(h=>norm(t.description).includes('favor de '+h)||norm(t.description).includes('to '+h))) out.add(t.id); }
   for(const t of txs) if(/trade republic/.test(norm(t.counterparty+' '+t.description))) out.add(t.id); // ahorro hacia Trade Republic
   // Revolut: "To pocket…", "From pocket…" o el nombre de uno de tus pockets → traspaso entre tu cuenta y tus pockets
   const pocketNames = S.pockets.map(p=>norm(p.name)).filter(n=>n.length>2);
@@ -1724,7 +1729,19 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
     const rec = reconcileBank(data.transactions||[]);
     const internal = markInternal((data.transactions||[]).filter(t=>!rec.alias.has(t.id)));
     // los movimientos ya importados que resultan ser traspasos entre tus cuentas se quitan
-    { const intIds=new Set(internal); const before=S.movements.length; S.movements=S.movements.filter(m=>!(m.bankId && intIds.has(m.bankId) && !m.receipt)); rec.removed += before-S.movements.length; }
+    { // lo que puede estar en la app: movimientos de la conexión buena, desde tu fecha de inicio, que no son copias ni traspasos
+      const importable = new Set((data.transactions||[]).filter(t=>t.date && t.date>=from && t.amount>0 && !internal.has(t.id) && !rec.alias.has(t.id)).map(t=>t.id));
+      const before=S.movements.length;
+      S.movements = S.movements.filter(m=>{
+        if(!m.bankId) return true;                       // apuntado a mano
+        if(importable.has(m.bankId)) return true;
+        if(m.receipt){ m.bankId=''; m.bankPending=false; return true; } // ticket: se queda, se volverá a enlazar
+        return !m.bankDesc;                               // importado del banco que ya no está: copia o traspaso → fuera
+      });
+      rec.removed += before-S.movements.length;
+      // pockets puestos antes por categoría a gastos de la cuenta principal: se quitan
+      for(const m of S.movements) if(m.bankDesc && m.pocketId && !m.edited){ const pp=pocket(m.pocketId); if(!pp || pp.bankUid!==m.bankAccount) m.pocketId=''; }
+    }
     const seen = S.settings.bankSeen = S.settings.bankSeen || {};
     const byBankId = new Map(S.movements.filter(m=>m.bankId).map(m=>[m.bankId,m]));
     const fresh=[]; let linked=0, updated=0;
@@ -1747,7 +1764,6 @@ async function bankSync({ fromBanks=false, quiet=false }={}){
       const g = guessCategory(t, pk);
       const mv = { id:uid(), type:t.type, amount:t.amount, categoryId:g.id, date:t.date, method:guessMethod(t), accountId, pocketId: t.type==='gasto' && pk ? pk.id : '', note:(t.counterparty || t.description).slice(0,80), recurringId:'', sample:false,
         bankId:t.id, bankAccount:t.account_uid, bankAspsp:t.aspsp||'', bankAccName:t.account_name||'', bankDesc:t.description.slice(0,160), merchantKey:merchantKey(t), _t:Date.now() };
-      if(!mv.pocketId && t.type==='gasto' && /revolut/i.test(t.aspsp||'')){ const p2=S.pockets.find(p=>(p.categories||[]).includes(g.id)); if(p2) mv.pocketId=p2.id; }
       if(!g.sure) fresh.push({ mv, t:{...t, _pocket: pk?pk.name:''} });
       S.movements.push(mv); seen[t.id]=1;
     }
@@ -1842,6 +1858,17 @@ window.App = {
   clearFilters(){ ui.f={q:'',cat:'',type:'',method:'',where:''}; render(); },
   openMovement, delMovement, editCategory, editBudget, editRecurring, editPocket, pocketDetail, editAccount, editGoal, goalDetail,
   exportCSV, backup, loadSample, clearSample, wipe, widget, close:closeModal, scan, saveSync, bankSync, dailyScript,
+  async report(){
+    try{
+      const data = await api('/api/data'); const from=S.settings.syncFrom||todayStr();
+      const accs=(data.accounts||[]).map(a=>`${a.uid.slice(0,6)} | ${a.aspsp} | ${a.name} | ${a.iban?'IBAN …'+a.iban.slice(-4):'sin IBAN'} | hasta ${String(a.valid_until||'').slice(0,10)} | saldo ${a.balance?a.balance.amount:'-'} (${a.balance&&a.balance.date?String(a.balance.date).slice(0,16):'-'})`).join('\n');
+      const live=new Set((S.bank?.accounts||[]).map(a=>a.uid));
+      const tx=(data.transactions||[]).filter(t=>t.date>=from).sort((a,b)=>a.date.localeCompare(b.date)).map(t=>`${t.date} | ${t.account_uid.slice(0,6)}${live.has(t.account_uid)?'':'(no usada)'} | ${t.aspsp} · ${t.account_name} | ${t.type==='gasto'?'-':'+'}${t.amount} | ${t.counterparty||''} | ${t.description} | mcc ${t.mcc||'-'} | ${t.status}`).join('\n');
+      const txt=`INFORME MIS FINANZAS ${APP_VERSION}\nCUENTAS\n${accs}\nMOVIMIENTOS desde ${from}\n${tx}`;
+      try{ await navigator.clipboard.writeText(txt); toast('Informe copiado: pégalo en el chat','ok'); }
+      catch(e){ modal('Informe', `<p class="hint" style="margin-top:0">Mantén pulsado el texto → Seleccionar todo → Copiar.</p><textarea class="input" style="height:260px;font-family:monospace;font-size:11px" readonly>${esc(txt)}</textarea>`); }
+    }catch(e){ toast(e.message,'over'); }
+  },
   toggleAccount(uid){ const l=S.settings.ignoredAccounts=S.settings.ignoredAccounts||[]; const i=l.indexOf(uid); i>=0?l.splice(i,1):l.push(uid); save(); toast(i>=0?'Cuenta en uso':'Cuenta ignorada','ok'); bankSync({quiet:true}).then(render); },
   markTransfer(id){ if(!confirm('¿Es un traspaso entre tus propias cuentas? Se quitará y no contará ni como gasto ni como ingreso. Los movimientos parecidos también se tratarán como traspasos.')) return;
     const m=S.movements.find(x=>x.id===id);
